@@ -71,60 +71,118 @@ Key advantages:
 
 ## Installation
 
+To install the project, make sure you have Python 3.8 or later version
+and `pip` installed on your machine. And then run the following command lines.
+
 ### For Linux
 
 ```bash
-git clone https://github.com/cacybernetic/cva_net.git
-cd cva_net
+git clone https://github.com/cacybernetic/CVA_NET;
+cd CVA_NET;
+sudo rm -r .git;
+git init;  # To create a new instance of git repository
 ```
 
-#### OS Dependencies
+#### OS dependences
 
-##### Ubuntu/Debian/Kali
-```bash
-sudo apt update
-sudo apt install python3.10 python3.10-venv python3-pip cmake build-essential
-sudo apt install libopencv-dev libgl1-mesa-glx
+##### Ubuntu
+Open your terminal and run following command lines
+to add the deadsnakes PPA to your system:
+
+```sh
+sudo apt update;
+sudo apt install software-properties-common -y;
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+
 ```
 
-#### Project Dependencies
+Refresh your package list to include the deadsnakes PPA
+and then install Python 3.10:
 
-1. **Create and activate virtual environment**:
-```bash
-python3.10 -m venv .venv
-source .venv/bin/activate
+```sh
+sudo apt update;
+sudo apt install python3.10;
+python3.10 --version
 ```
 
-2. **Install core dependencies**:
-```bash
-pip install --upgrade pip
-make install  # Installs all required packages
+> **NOTE**: Do not change the default Python version of Ubuntu,
+> as it may break system tools that depend on it.
+
+##### Debian or Kali
+
+In first, install the following dependences on your computer.
+
+```sh
+sudo apt install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
 ```
 
-3. **Development installation**:
-```bash
-make dev_install  # Installs in development mode
+And then, we can run the following command to install `pyenv`
+directly via APT on your computer.
+
+```sh
+sudo apt install pyenv
 ```
+
+Or run the following command lines, to clone and install
+`pyenv` from its souce code.
+
+```sh
+git clone https://github.com/pyenv/pyenv.git ~/.pyenv;
+ 
+echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.bashrc;
+echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.bashrc;
+echo 'eval "$(pyenv init --path)"' >> ~/.bashrc;
+echo 'eval "$(pyenv init -)"' >> ~/.bashrc;
+source ~/.bashrc;
+```
+
+Now, runing the following command line, we can use `pyenv`
+to install the version of Python what we want to install.
+
+```sh
+pyenv install 3.10.18;  # Here, we install Python 3.10.18.
+sudo ln -s $HOME/.pyenv/versions/3.10.18/bin/python3 /usr/local/bin/python3.10
+```
+
+#### Project dependences
+
+1. `sudo apt install cmake python3-venv` Install *Cmake* and *Virtual env*;
+2. `python3 -m venv .venv` create a virtual env into directory
+named `env`;
+3. `source .venv/bin/activate` activate the virtual environment named `.venv`;
+4. `make install` install the requirements of this package;
+5. `make dev_install` or `pip install -e .` install the package in dev mode
+in virtual environment;
+6. Run `make test` or `pytest` to execute the unit test scripts located
+at `tests` directory.
 
 ### For Windows
 
-1. **Clone and setup**:
-```cmd
-git clone https://github.com/mokira3d48/cva_net.git
-cd cva_net
+```bash
+git clone https://github.com/cacybernetic/CVA_NET
 ```
 
-2. **Create virtual environment**:
-```cmd
-python -m venv .venv
-.venv\Scripts\activate
+```bash
+cd CVA_NET
 ```
 
-3. **Install dependencies**:
-```cmd
-pip install -r requirements.txt
-pip install -e .
-```
+And then, delete the hidden directory named `.git` located at the root
+of the directory project.
+
+And then,
+
+1. Install python for windows;
+2. Open your command prompt;
+3. Run `python -m venv .venv` to create a virtual env into directory
+named `.venv`;
+4. Run `.venv\Scripts\activate` to activate the virtual environment;
+5. Run `pip install -r requirements.txt` to install the requirements
+of this package or project;
+6. Run `pip install -e .` install the package in dev mode in virtual
+environment;
+7. `pytest` run the unit test scripts located at `tests` directory.
+
+---
 
 ## Quick Start
 
