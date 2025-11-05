@@ -101,6 +101,21 @@ class ModelConfig:
     freeze_feature_layers: bool = False
 
 
+def initialize_weights(m: AlexNet) -> None:
+    """Function of model weights initialization."""
+    if isinstance(m, nn.Conv2d):
+        torch.nn.init.xavier_uniform_(m.weight)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+        print("CONV2D weights:\n" + str(m.weight[0]))
+        print("CONV2D bias:\n" + str(m.bias[0]))
+    elif isinstance(m, nn.Linear):
+        nn.init.normal_(m.weight, mean=0, std=0.01)
+        nn.init.constant_(m.bias, 0)
+        print("LINEAR weights:\n" + str(m.weight[0]))
+        print("LINEAR bias:\n" + str(m.bias[0]))
+
+
 ###############################################################################
 # MODEL ARCHITECTURE PRINTING
 ###############################################################################
@@ -257,10 +272,14 @@ class ModelRepository:
         return config
 
 
+###############################################################################
+# MODEL FACTORY
+###############################################################################
+
 class ModelFactory:
     @staticmethod
     def build(
-        config: ModelConfig = None,
+        config: ModelConfig = None, 
         **kwargs: t.Dict[str, t.Any]
     ) -> AlexNet:
         if config is None:
@@ -270,6 +289,7 @@ class ModelFactory:
             image_size=config.img_size, num_channels=config.num_channels,
             num_classes=config.num_classes
         )
+        model.apply(initialize_weights)
         return model
 
     @staticmethod
@@ -306,6 +326,7 @@ def _get_argument():
 def main() -> None:
     import sys
     args = _get_argument()
+
     if args.action == 'build':
         model_config = ModelConfig()
         model_config.img_size = args.image_size
@@ -324,6 +345,7 @@ def main() -> None:
                 model, config=model_config, batch_size=args.batch_size
             )
             LOGGER.info("Encoder inference time %.3f sec." % (model_it,))
+
     elif args.action == 'print':
         model_repository = ModelRepository(args.model)
         model, model_config = ModelFactory.load(model_repository)
