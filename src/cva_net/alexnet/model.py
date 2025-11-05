@@ -8,12 +8,12 @@ from torch import nn
 # Set up logging:
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - - \033[95m%(levelname)s\033[0m - %(message)s',
+    format='%(asctime)s - - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler("alexnet_model.log"),
         logging.StreamHandler()
-        ]
-    )
+    ]
+)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -106,10 +106,11 @@ class ModelConfig:
 ###############################################################################
 
 def print_model_summary(
-    model: nn.Module,
-    input_data: tuple,
+    model: AlexNet,
+    config: ModelConfig,
+    batch_size: int=1,
     depth: int=8,
-    device=None
+    device: t.Union[str, torch.device]='cpu'
 ):
     """
     This function to make summary for the model instance received
@@ -117,6 +118,9 @@ def print_model_summary(
     """
     import time as tm
     from torchinfo import summary
+
+    input_shape = (batch_size, config.num_channels, *config.img_size)
+    input_data = torch.randn(input_shape)
 
     start = tm.time()
     state = summary(
@@ -290,7 +294,7 @@ def _get_argument():
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--class-names', nargs='+', type=str, default=[])
     parser.add_argument(
-        '-o', '--output', type=str, default='outputs',
+        '-m', '--model', type=str, default='outputs/saved_model',
         help="The path to model directory."
     )
     # parser.add_argument(
@@ -311,19 +315,24 @@ def main() -> None:
             else 1000
         model_config.dropout = args.dropout
         model = ModelFactory.build(model_config)
-        model_repository = ModelRepository(args.output)
+        model_repository = ModelRepository(args.model)
         model_repository.save(model, model_config)
 
         model.eval()
         with torch.no_grad():
-            input_shape = (
-                args.batch_size, model_config.num_channels,
-                *model_config.img_size
+            _, model_it = print_model_summary(
+                model, config=model_config, batch_size=args.batch_size
             )
-            x = torch.randn(input_shape)
+            LOGGER.info("Encoder inference time %.3f sec." % (model_it,))
+    elif args.action == 'print':
+        model_repository = ModelRepository(args.model)
+        model, model_config = ModelFactory.load(model_repository)
 
-            _, model_it = print_model_summary(model, (x,))
+        model.eval()
+        with torch.no_grad():
+            _, model_it = print_model_summary(
+                model, config=model_config, batch_size=args.batch_size
+            )
             LOGGER.info("Encoder inference time %.3f sec." % (model_it,))
 
     sys.exit(0)
-
