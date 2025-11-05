@@ -101,6 +101,36 @@ class ModelConfig:
 
 
 ###############################################################################
+# MODEL ARCHITECTURE PRINTING
+###############################################################################
+
+def print_model_summary(
+    model: nn.Module,
+    input_data: tuple,
+    depth: int=8,
+    device=None
+):
+    """
+    This function to make summary for the model instance received
+    by arguments.
+    """
+    import time as tm
+    from torchinfo import summary
+
+    start = tm.time()
+    state = summary(
+        model=model, input_data=input_data, device=device, depth=depth,
+        col_names=(
+            "input_size", "output_size", "num_params", "params_percent",
+            "trainable",
+        )
+    )
+    end = tm.time()
+    inference_time = (end - start)
+    return state, inference_time
+
+
+###############################################################################
 # MODEL REPOSITORY
 ###############################################################################
 from pathlib import Path
@@ -224,238 +254,40 @@ class ModelRepository:
 
 class ModelFactory:
     @staticmethod
-    def build_encoder(
-        model_config: EncoderConfig = None,
-        **kwargs: _t.Any
-    ) -> TransformerEncoder:
-        """
-        Build a Transformer encoder model.
-
-        Example usage:
-            >>> # Build with default configuration
-            >>> encoder = ModelFactory.build_encoder()
-            >>>
-            >>> # Build with existing configuration
-            >>> config = EncoderConfig(d_model=768, num_heads=12)
-            >>> encoder = ModelFactory.build_encoder(config)
-            >>>
-            >>> # Build with inline parameter overrides
-            >>> encoder = ModelFactory.build_encoder(num_layers=8, dropout=0.2)
-
-        :param model_config: Encoder configuration, defaults to None.
-        :param kwargs: Additional parameters to override in configuration.
-        :return: Configured Transformer encoder instance.
-        """
-        if model_config is None:
-            model_config = EncoderConfig()
-        model_config.__dict__.update(kwargs)
-        model = TransformerEncoder(
-            input_dim=model_config.input_dim,
-            max_seq_len=model_config.max_seq_len, d_model=model_config.d_model,
-            num_heads=model_config.num_heads,
-            num_layers=model_config.num_layers, d_ff=model_config.d_ff,
-            dropout=model_config.dropout
-        )
-        return model
-
-    @staticmethod
-    def build_decoder(
-        model_config: DecoderConfig = None,
-        **kwargs: _t.Any
-    ) -> TransformerDecoder:
-        """
-        Build a Transformer decoder model.
-
-        Example usage:
-            >>> # Build with default configuration
-            >>> decoder = ModelFactory.build_decoder()
-            >>>
-            >>> # Build with existing configuration
-            >>> config = DecoderConfig(output_dim=100000, num_layers=4)
-            >>> decoder = ModelFactory.build_decoder(config)
-            >>>
-            >>> # Build with inline parameter overrides
-            >>> decoder = ModelFactory.build_decoder(vocab_size=45000, d_ff=1024)
-
-        :param model_config: Decoder configuration, defaults to None.
-        :param kwargs: Additional parameters to override in configuration.
-        :return: Configured Transformer decoder instance.
-        """
-        if model_config is None:
-            model_config = DecoderConfig()
-        model_config.__dict__.update(kwargs)
-        model = TransformerDecoder(
-            vocab_size=model_config.vocab_size,
-            max_seq_len=model_config.max_seq_len, d_model=model_config.d_model,
-            num_heads=model_config.num_heads,
-            num_layers=model_config.num_layers, d_ff=model_config.d_ff,
-            dropout=model_config.dropout
-        )
-        return model
-
-    @staticmethod
     def build(
-        encoder_config: EncoderConfig = None,
-        decoder_config: DecoderConfig = None
-    ) -> _t.Tuple[TransformerEncoder, TransformerDecoder]:
-        """
-        Build both encoder and decoder models.
-
-        Example usage:
-            >>> # Build both with default configurations
-            >>> encoder, decoder = ModelFactory.build()
-            >>>
-            >>> # Build with custom encoder configuration
-            >>> enc_config = EncoderConfig(num_heads=16)
-            >>> encoder, decoder = ModelFactory.build(encoder_config=enc_config)
-            >>>
-            >>> # Build with both custom configurations
-            >>> enc_config = EncoderConfig(d_model=768)
-            >>> dec_config = DecoderConfig(vocab_size=75000)
-            >>> encoder, decoder = ModelFactory.build(enc_config, dec_config)
-
-        :param encoder_config: Encoder configuration, defaults to None.
-        :param decoder_config: Decoder configuration, defaults to None.
-        :return: Tuple of (encoder, decoder) model instances.
-        """
-        encoder = ModelFactory.build_encoder(encoder_config)
-        decoder = ModelFactory.build_decoder(decoder_config)
-        return encoder, decoder
+        config: ModelConfig = None,
+        **kwargs: t.Dict[str, t.Any]
+    ) -> AlexNet:
+        if config is None:
+            config = ModelConfig()
+        config.__dict__.update(kwargs)
+        model = AlexNet(
+            image_size=config.img_size, num_channels=config.num_channels,
+            num_classes=config.num_classes
+        )
+        return model
 
     @staticmethod
-    def load_encoder(
-        repository: ModelRepository
-    ) -> _t.Tuple[TransformerEncoder, EncoderConfig]:
-        """
-        Load encoder model and configuration from repository.
-
-        Example usage:
-            >>> # Initialize repository
-            >>> repo = ModelRepository("saved_models")
-            >>>
-            >>> # Load encoder with its configuration
-            >>> encoder, encoder_config = ModelFactory.load_encoder(repo)
-            >>>
-            >>> # Use the loaded model and configuration
-            >>> print(f"Encoder d_model: {encoder_config.d_model}")
-
-        :param repository: Model repository instance.
-        :return: Tuple of (loaded encoder, encoder configuration).
-        """
-        model_config = EncoderConfig()
+    def load(repository: ModelRepository) -> t.Tuple[AlexNet, ModelConfig]:
+        model_config = ModelConfig()
         model_config = repository.load_model_config(model_config)
-        model = ModelFactory.build_encoder(model_config)
+        model = ModelFactory.build(model_config)
         loaded_model = repository.load_model(model)
         return loaded_model, model_config
-
-    @staticmethod
-    def load_decoder(
-        repository: ModelRepository
-    ) -> _t.Tuple[TransformerDecoder, DecoderConfig]:
-        """
-        Load decoder model and configuration from repository.
-
-        Example usage:
-            >>> # Initialize repository
-            >>> repo = ModelRepository("saved_models")
-            >>>
-            >>> # Load decoder with its configuration
-            >>> decoder, decoder_config = ModelFactory.load_decoder(repo)
-            >>>
-            >>> # Use the loaded model and configuration
-            >>> print(f"Decoder vocab_size: {decoder_config.vocab_size}")
-
-        :param repository: Model repository instance.
-        :return: Tuple of (loaded decoder, decoder configuration).
-        """
-        model_config = DecoderConfig()
-        model_config = repository.load_model_config(model_config)
-        model = ModelFactory.build_decoder(model_config)
-        loaded_model = repository.load_model(model)
-        return loaded_model, model_config
-
-    @staticmethod
-    def load(
-        repository: ModelRepository
-    ) -> _t.Tuple[
-        TransformerEncoder, TransformerDecoder, EncoderConfig, DecoderConfig
-    ]:
-        """
-        Load complete model system from repository.
-
-        Example usage:
-            >>> # Initialize repository
-            >>> repo = ModelRepository("saved_models")
-            >>>
-            >>> # Load complete model system
-            >>> encoder, decoder, enc_config, dec_config = ModelFactory.load(repo)
-            >>>
-            >>> # Use all loaded components
-            >>> print(f"Encoder layers: {enc_config.num_layers}")
-            >>> print(f"Decoder layers: {dec_config.num_layers}")
-
-        :param repository: Model repository instance.
-        :return: Tuple of (encoder, decoder, encoder_config, decoder_config).
-        """
-        encoder, encoder_config = ModelFactory.load_encoder(repository)
-        decoder, decoder_config = ModelFactory.load_decoder(repository)
-        return encoder, decoder, encoder_config, decoder_config
 
 
 def _get_argument():
     import argparse
 
     parser = argparse.ArgumentParser()
-    # batch_size: int = 1
-    # max_seq_len: int = 150
-    # output_dim: int = 130_000
-    # d_model: int = 512
-    # num_heads: int = 8
-    # num_layers: int = 6
-    # d_ff: int = 2048
-    # dropout: float = 0.1
     parser.add_argument('action', type=str, choices=['build', 'print'])
     parser.add_argument(
         '-b', '--batch-size', type=int, default=1, help="Batch size."
     )
-    parser.add_argument(
-        '--input-dim', type=int, default=126, help="Input dimension."
-    )
-    parser.add_argument(
-        '--vocab-size', type=int, default=130_000,
-        help="Vocab size of output language."
-    )
-    parser.add_argument(
-        '--encoder-max-seq-len', type=int, default=300,
-        help="Max sequence length of encoder model."
-    )
-    parser.add_argument(
-        '--decoder-max-seq-len', type=int, default=450,
-        help="Max sequence length of decoder model."
-    )
-    parser.add_argument(
-        '--d-model', type=int, default=512,
-        help=(
-            "The dimension of the representation space "
-            "of the all transformer model."
-        )
-    )
-    parser.add_argument(
-        '--num-heads', type=int, default=8,
-        help="The number of attention heads."
-    )
-    parser.add_argument(
-        '--num-layers', type=int, default=6,
-        help="The number of encoder layers and decoder layers."
-    )
-    parser.add_argument(
-        '--d-ff', type=int, default=2048,
-        help="The hidden dimension of the Pointwise feed forward."
-    )
-    parser.add_argument(
-        '--dropout', type=float, default=0.5,
-        help="The dropout probability."
-    )
+    parser.add_argument('--image-size', nargs=2, type=int, default=(224, 224))
+    parser.add_argument('--num-channels', type=int, default=3)
+    parser.add_argument('--dropout', type=float, default=0.5)
+    parser.add_argument('--class-names', nargs='+', type=str)
     parser.add_argument(
         '-o', '--output', type=str, default='outputs',
         help="The path to model directory."
@@ -470,73 +302,26 @@ def main() -> None:
     import sys
     args = _get_argument()
     if args.action == 'build':
-        encoder_config = EncoderConfig()
-        decoder_config = DecoderConfig()
-        encoder_config.batch_size = args.batch_size
-        encoder_config.max_seq_len = args.encoder_max_seq_len
-        encoder_config.input_dim = args.input_dim
-        encoder_config.d_model = args.d_model
-        encoder_config.num_heads = args.num_heads
-        encoder_config.num_layers = args.num_layers
-        encoder_config.d_ff = args.d_ff
-        encoder_config.dropout = args.dropout
-
-        decoder_config.batch_size = args.batch_size
-        decoder_config.max_seq_len = args.decoder_max_seq_len
-        decoder_config.vocab_size = args.vocab_size
-        decoder_config.d_model = args.d_model
-        decoder_config.num_heads = args.num_heads
-        decoder_config.num_layers = args.num_layers
-        decoder_config.d_ff = args.d_ff
-        decoder_config.dropout = args.dropout
-        encoder, decoder = ModelFactory.build(encoder_config, decoder_config)
-
+        model_config = ModelConfig()
+        model_config.img_size = args.img_size
+        model_config.num_channels = args.img_channels
+        model_config.class_names = args.class_names
+        model_config.num_classes = len(args.class_names)
+        model_config.dropout = args.dropout
+        model = ModelFactory.build(model_config)
         model_repository = ModelRepository(args.output)
-        model_repository.save(encoder, encoder_config)
-        model_repository.save(decoder, decoder_config)
+        model_repository.save(model, model_config)
 
-        encoder.eval()
-        decoder.eval()
-
+        model.eval()
         with torch.no_grad():
             input_shape = (
-                encoder_config.batch_size, encoder_config.max_seq_len,
-                encoder_config.input_dim
+                model_config.batch_size, model_config.num_channels,
+                *model_config.img_size
             )
             x = torch.randn(input_shape)
-            # Create sample tensors
-            # Target sequence (what we want to generate)
-            target_seq_shape = (
-                encoder_config.batch_size, encoder_config.max_seq_len
-            )
-            target_seq = torch.randint(
-                0, decoder_config.vocab_size - 1, target_seq_shape
-            )
-            # Encoder output (from the encoder module)
-            encoder_output_shape = (
-                encoder_config.batch_size, encoder_config.max_seq_len,
-                encoder_config.d_model
-            )
-            encoder_output = torch.randn(encoder_output_shape)
 
-            # Create look-ahead mask for decoder self-attention
-            look_ahead_mask = \
-                create_look_ahead_mask(encoder_config.max_seq_len)
-
-            LOGGER.info("look_ahead_mask shape: " + str(look_ahead_mask.shape))
-            LOGGER.info("look_ahead_mask:\n" + repr(look_ahead_mask))
-
-            # Forward pass through decoder:
-            # output = decoder(
-            #     x=target_seq, encoder_output=encoder_output,
-            #     self_attn_mask=look_ahead_mask
-            # )
-            _, encoder_it = print_model_summary(encoder, (x,))
-            _, decoder_it = print_model_summary(
-                decoder, (target_seq, encoder_output, look_ahead_mask)
-            )
-            print("Encoder inference time %.3f sec." % (encoder_it,))
-            print("Decoder inference time %.3f sec." % (decoder_it,))
+            _, model_it = print_model_summary(model, (x,))
+            LOGGER.info("Encoder inference time %.3f sec." % (model_it,))
 
     sys.exit(0)
 
