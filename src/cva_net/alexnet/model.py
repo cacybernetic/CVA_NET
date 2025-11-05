@@ -92,6 +92,7 @@ class AlexNet(nn.Module):
 
 @dataclass
 class ModelConfig:
+    arch: str = 'AlexNet'
     img_size: t.Tuple[int, int] = (224, 224)
     num_channels: int = 3
     dropout: float = 0.5
@@ -164,7 +165,7 @@ class ModelRepository:
         :param folder: Root directory path for model storage.
         """
         self._folder = Path(folder)
-        self._model_fp = self._folder / self.model_fn + '.' + self.formatting
+        self._model_fp = self._folder / (self.model_fn + '.' + self.formatting)
         self._conf_fp = self._folder / self.config_fn
 
     @staticmethod
@@ -287,7 +288,7 @@ def _get_argument():
     parser.add_argument('--image-size', nargs=2, type=int, default=(224, 224))
     parser.add_argument('--num-channels', type=int, default=3)
     parser.add_argument('--dropout', type=float, default=0.5)
-    parser.add_argument('--class-names', nargs='+', type=str)
+    parser.add_argument('--class-names', nargs='+', type=str, default=[])
     parser.add_argument(
         '-o', '--output', type=str, default='outputs',
         help="The path to model directory."
@@ -303,10 +304,11 @@ def main() -> None:
     args = _get_argument()
     if args.action == 'build':
         model_config = ModelConfig()
-        model_config.img_size = args.img_size
-        model_config.num_channels = args.img_channels
+        model_config.img_size = args.image_size
+        model_config.num_channels = args.num_channels
         model_config.class_names = args.class_names
-        model_config.num_classes = len(args.class_names)
+        model_config.num_classes = len(args.class_names) if args.class_names \
+            else 1000
         model_config.dropout = args.dropout
         model = ModelFactory.build(model_config)
         model_repository = ModelRepository(args.output)
@@ -315,7 +317,7 @@ def main() -> None:
         model.eval()
         with torch.no_grad():
             input_shape = (
-                model_config.batch_size, model_config.num_channels,
+                args.batch_size, model_config.num_channels,
                 *model_config.img_size
             )
             x = torch.randn(input_shape)

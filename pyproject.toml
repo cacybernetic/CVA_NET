@@ -29,4 +29,5 @@ dependencies = [
 where = ["src"]
 
 [project.scripts]
-mycmd = "cva_net.__main__:main"
+alexnet_model = "cva_net.alexnet.model:main"
+
