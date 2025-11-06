@@ -241,20 +241,6 @@ class HDF5DatasetWriter:
                 " calling open() method."
             )
 
-    def update_classes(self, new_class_names):
-        self._check_file_opened()
-        class_names = self._metadata.attrs['class_names']
-        if 'value' not in class_names:
-            class_names.attrs['value'] = []
-
-        existing_classes = list(class_names.attrs['value'])
-        for new_class_name in new_class_names:
-            if new_class_name in existing_classes:
-                continue
-            existing_classes.append(new_class_name)
-        class_names.clear()
-        class_names.attrs['value'] = existing_classes
-
     def new_dataset(self, name):
         """
         Function of creation of new dataset named the name provided.
@@ -372,16 +358,6 @@ class HDF5DatasetReader:
             raise TypeError(f"This HDF5 file is not corrupted.")
         self._metadata = self._h5file['metadata']
         self._datasets = self._h5file['datasets']
-
-    def get_class_names(self):
-        if self._class_names:
-            return self._class_names
-        self._check_file_opened()
-        if 'class_names' not in self._metadata:
-            return []
-        class_names = self._metadata['class_names']
-        class_names_list = list(class_names.attrs['value'])
-        return class_names_list
 
     def _check_file_opened(self):
         if not isinstance(self._h5file, h5py.File):
