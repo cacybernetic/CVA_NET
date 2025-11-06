@@ -18,9 +18,9 @@ from torchvision.transforms import Compose
 # Set up logging:
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - - %(levelname)s - %(message)s',
+    format='%(levelname)s \t %(message)s',
     handlers=[
-        logging.FileHandler("alexnet_model.log"),
+        logging.FileHandler("classification_dataset.log"),
         logging.StreamHandler()
     ]
 )
@@ -100,7 +100,7 @@ class HDF5Reader:
 
         :param name: The name of the attribute.
         :param default: The default value to return
-            when no value found for this attribute.
+          when no value found for this attribute.
 
         :type name: `str`
         :type default: `typing.Any`
@@ -412,7 +412,8 @@ class HDF5DatasetReader:
             return None
         group = self._datasets[name]
         writer = HDF5Reader(
-            group, name=name, class_names=self.get_class_names())
+            group, name=name, class_names=self.get_class_names()
+        )
         return writer
 
     def close(self):
@@ -536,6 +537,30 @@ def get_training_transforms() -> Compose:
     ])
 
 
+def get_transforms(
+    img_size: t.Tuple[int, int] = (224, 224)
+) -> Compose:
+    """
+    Validation/test transforms pipeline.
+    Only includes necessary preprocessing without augmentation.
+    """
+    return Compose([
+        # Resize to slightly larger than target size:
+        transforms.Resize(img_size),
+
+        # Center crop to AlexNet input size:
+        # transforms.CenterCrop(224),
+
+        # Convert to tensor:
+        transforms.ToTensor(),
+
+        # Normalize using ImageNet statistics:
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+            )
+    ])
+
+
 ###############################################################################
 # DATASET BUIDING
 ###############################################################################
@@ -546,8 +571,8 @@ def build(
     dataset_file: str,
     transform: t.Union[Compose, t.Callable[[Image.Image], np.ndarray]],
     img_size: t.Tuple[int, int]=(224, 224),
-    dataset_type: t.Literal['train', 'test']='train',
-) -> None:
+    train: bool=True,
+) -> HDF5DatasetWriter:
     """
     Class method to build a dataset from data samples
     contained on data dir.
@@ -556,7 +581,6 @@ def build(
     :param img_size: The image size will be used to resize all images.
     :param transform: The pipeline of data transformation.
     :returns: An instance of the Dataset.
-    :rtype: Dataset
     """
     paths = []
     classes = []
@@ -595,9 +619,13 @@ def build(
     LOGGER.info("Image files loading from data directory is done.\n")
 
     ## Image transformation.
+    if transform is None:
+        transform = get_training_transforms() if train is True \
+            else get_transforms()
     ds_writer = HDF5DatasetWriter(dataset_file)
     ds_writer.open()
-    h5_dataset = ds_writer.new_dataset(dataset_type)
+    dataset_name = 'train' if train is True else 'test'
+    h5_dataset = ds_writer.new_dataset(dataset_name)
     iterator = tqdm(
         iterable=zip(paths, classes), total=len(paths), unit='image(s)'
     )
@@ -613,18 +641,63 @@ def build(
     h5_dataset.set_attr('num_channels', image.shape[0])
     h5_dataset.set_attr('image_size', img_size)
     h5_dataset.set_attr('class_names', class_names)
-    h5_dataset.set_attr('dataset_type', dataset_type)
     LOGGER.info("Dataset metadata is added.")
-    
+
     ## Dataset closing.
     ds_writer.update_classes(class_names)
     ds_writer.mark_completed()
     ds_writer.close()
     LOGGER.info("Dataset file completed and closed.")
+    return ds_writer
 
 ###############################################################################
 # MAIN IMPLEMENTATION
 ###############################################################################
 
-def _get_argument():
-    ...
+def _get_arguments():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', type=str, choices=['build'])
+    parser.add_argument(
+        '-d', '--data-dir', type=str, help="The path to directory of data."
+    )
+    parser.add_argument(
+        '--image-size', nargs=2, type=int,
+        help=(
+            "Allows to define the size which will be taked by all images "
+            "contained in the final dataset."
+        )
+    )
+    parser.add_argument(
+        '--train', type=str, action="store_true",
+        help=(
+            "Specify if the dataset which we want to build "
+            "is the training set to allow the dataset builder "
+            "to use the good data transformer."
+        )
+    )
+    parser.add_argument(
+        '--dataset', type=str, default='dataset.h5',
+        help="The path to HDF5 file where you want to save the dataset."
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    import sys
+
+    args = _get_arguments()
+    if args.action == 'build':
+        dataset_file = build(
+            data_dir=args.data_dir, dataset_file=args.dataset,
+            img_size=args.image_size, train=args.train
+        )
+        print(str(dataset_file))
+    
+    sys.exit(0)
+
+
+if __name__ == '__main__':
+    main()
+
