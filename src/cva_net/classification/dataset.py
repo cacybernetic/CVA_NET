@@ -84,16 +84,15 @@ class HDF5Writer:
 
 
 class HDF5Reader:
-    def __init__(self, h5_group, name=None, class_names=None):
+    def __init__(self, h5_group, name=None):
         self._h5_group = h5_group
         self._name = name if name is not None else ""
         self._count = len(list(self._h5_group.keys()))
-        self._class_names = class_names
         self._description = {}
 
     @property
     def class_names(self):
-        return self._class_names
+        return self.get_attr('class_names', [])
 
     def get_attr(self, name, default=None):
         """Method to set attribute
@@ -147,16 +146,17 @@ class HDF5Reader:
 
         # Count number of sample for each label.
         label_counts = {}
+        class_names = self.class_names
         for i in range(self._count):
             _, cls_id = self.read(i)
-            cls_name = self._class_names[cls_id]
+            cls_name = class_names[cls_id]
             if cls_name in label_counts:
                 label_counts[cls_name] += 1
             else:
                 label_counts[cls_name] = 1
 
         self._description['label_counts'] = label_counts
-        self._description['class_names'] = self._class_names[:]
+        self._description['class_names'] = class_names
         self._description['num_samples'] = self._count
         return self._description
 
@@ -175,16 +175,27 @@ class HDF5Reader:
         label_counts = desc['label_counts']
 
         summary_str = f"Dataset {self._name}:\n"
-        summary_str += f"\t\t* Number of samples: \033[48m{num_samples}\033[0m"
+        summary_str += f"\t* Number of samples: \033[48m{num_samples}\033[0m"
         summary_str += "\n"
 
         # sorted_cls_names = sorted(
         #     class_names, key=lambda x: len(x), reverse=True)
         # max_length = len(sorted_cls_names[0])
-        summary_str += f"\t\t* Class names list and its number of occurrences:"
+        summary_str += f"\t* Class names list and its number of occurrences:"
         summary_str += "\n"
         for class_name, count in label_counts.items():
             summary_str += f"\t\t\t- {class_name:24s} {count}\n"
+
+        index = random.randint(0, len(self))
+        sample = self.read(index)
+        summary_str += "\t* Sample:\n"
+        if isinstance(sample, tuple):
+            feature = sample[0]
+            target = sample[1]
+            summary_str += "\t\t* Feature:\n" + str(feature) + "\n"
+            summary_str += "\t\t* Target:\n" + str(target) + "\n"
+            summary_str += "\t\t* Feature shape:" + str(feature.shape) + "\n"
+            summary_str += "\t\t* Target shape:" + str(target.shape) + "\n"
 
         return summary_str
 
@@ -387,9 +398,7 @@ class HDF5DatasetReader:
         if not self.exists(name):
             return None
         group = self._datasets[name]
-        writer = HDF5Reader(
-            group, name=name, class_names=self.get_class_names()
-        )
+        writer = HDF5Reader(group, name=name)
         return writer
 
     def close(self):
@@ -539,7 +548,7 @@ def get_transforms(
 
 
 ###############################################################################
-# DATASET BUIDING
+# DATASET BUILDING
 ###############################################################################
 
 
@@ -627,6 +636,78 @@ def build(
     LOGGER.info("Dataset file completed and closed.")
     return h5_dataset
 
+
+###############################################################################
+# DATASET LOADING
+###############################################################################
+
+class Dataset(BaseDataset):
+
+    def __init__(
+        self,
+        dataset_source: HDF5Reader,
+        start_index: int=0,
+        end_index: int=-1
+    ) -> None:
+        super().__init__()
+        self._dataset_source = dataset_source
+        self._start = start_index
+        assert end_index >= -1, \
+            "The value of the end of index must be between -1, 0, +inf."
+        self._end = end_index if end_index != -1 else len(dataset_source)
+        self._count = self._end - self._start
+
+    def __len__(self) -> int:
+        return self._count
+
+    def __getitem__(self, index: int):
+        abs_index = self._start + index
+        if abs_index < self._start or abs_index > self._end:
+            raise IndexError(
+                "The index of the sample is out of range of %d and %d."
+                % (0, self._count - 1)
+            )
+        feature, label_idx = self._dataset_source.read(index)
+        feature = torch.tensor(feature, dtype=torch.float32)
+        label_idx = torch.tensor(label_idx, dtype=torch.int64)
+        return feature, label_idx
+
+
+def get_dataloader(
+    dataset_source: HDF5DatasetReader,
+    batch_size: int = 16,
+    num_workers: int = 4,
+    drop_last: bool=False,
+    pin_memory: bool=False,
+    val: int=0.2,
+) -> t.List[Dataset]:
+    # ds_reader = HDF5DatasetReader(dataset_file)
+    # ds_reader.open()
+    train_dataset_source = dataset_source.get_dataset("train")
+    test_dataset_source = dataset_source.get_dataset("test")
+    class_names = train_dataset_source.get_attr('class_names')
+
+    ## Create datasets.
+    train_dataset = Dataset(train_dataset_source)
+    test_dataset = Dataset(test_dataset_source)
+    num_val_samples = int(val * len(test_dataset_source))
+    val_dataset = Dataset(test_dataset_source, end_index=num_val_samples)
+
+    ## Create data loaders
+    train_loader = DataLoader(
+        dataset=train_dataset, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=pin_memory, drop_last=drop_last,
+    )
+    val_loader = DataLoader(
+        dataset=val_dataset, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+    )
+    test_loader = DataLoader(
+        dataset=test_dataset, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=pin_memory,
+    )
+    return train_loader, val_loader, test_loader, class_names
+
 ###############################################################################
 # MAIN IMPLEMENTATION
 ###############################################################################
@@ -635,7 +716,7 @@ def _get_arguments():
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', type=str, choices=['build'])
+    parser.add_argument('action', type=str, choices=['building', 'analysis'])
     parser.add_argument(
         '-d', '--data-dir', type=str, help="The path to directory of data."
     )
@@ -666,12 +747,37 @@ def main() -> None:
 
     args = _get_arguments()
 
-    if args.action == 'build':
+    if args.action == 'building':
         dataset_file = build(
             data_dir=args.data_dir, dataset_file=args.dataset,
             img_size=args.image_size, train=args.train
         )
-        print(str(dataset_file))
+        LOGGER.info(str(dataset_file))
+    
+    elif args.action == 'analysis':
+        ds_reader = HDF5DatasetReader(args.dataset)
+        ds_reader.open()
+        train_dataset_source = ds_reader.get_dataset("train")
+        test_dataset_source = ds_reader.get_dataset("test")
+
+        LOGGER.info("=" * 80)
+        LOGGER.info("TRAIN DATASET:")
+        LOGGER.info("=" * 80)
+        LOGGER.info(str(train_dataset_source))
+        LOGGER.info("=" * 80)
+        LOGGER.info("TEST DATASET:")
+        LOGGER.info("=" * 80)
+        LOGGER.info(str(test_dataset_source))
+
+        ret = get_dataloader(ds_reader)
+        train_loader, val_loader, test_loader, class_names = ret
+        LOGGER.info("Testing of dataloader (val_loader):")
+        for idx, (features, target_ids) in enumerate(val_loader):
+            LOGGER.info("features shape: " + str(features.shape))
+            LOGGER.info("target_ids shape: " + str(target_ids.shape))
+            if idx >= 3:
+                break
+        LOGGER.info("class_names: " + str(class_names))
 
     sys.exit(0)
 
