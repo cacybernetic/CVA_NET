@@ -25,7 +25,7 @@ class AlexNet(nn.Module):
         num_classes: int=1000,
         dropout: float=0.5
     ) -> None:
-        super(AlexNet, self).__init__()
+        super().__init__()
         self.features = nn.Sequential(
             nn.Conv2d(
                 num_channels, 96, kernel_size=11, stride=4, padding=0
@@ -131,6 +131,12 @@ def print_model_summary(
     This function to make summary for the model instance received
     by arguments.
     """
+    named_parameters = model.state_dict()
+    print("=" * 80)
+    print(model.__class__.__name__ + " model parameters:")
+    for name, param in named_parameters.items():
+        print("\t" + name + " \t " + str(param.shape))
+
     import time as tm
     from torchinfo import summary
 
