@@ -688,16 +688,16 @@ def main() -> None:
     import sys
 
     args = _get_arguments()
+
     if args.action == 'build':
         dataset_file = build(
             data_dir=args.data_dir, dataset_file=args.dataset,
             img_size=args.image_size, train=args.train
         )
         print(str(dataset_file))
-    
+
     sys.exit(0)
 
 
 if __name__ == '__main__':
     main()
-
