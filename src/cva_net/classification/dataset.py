@@ -219,7 +219,7 @@ class HDF5DatasetWriter:
         """
         assert self._file_path is not None, \
             "The file path value is not defined"
-        self._h5file = h5py.File(self._file_path, mode='w')
+        self._h5file = h5py.File(self._file_path, mode='a')
 
         data_keys = list(self._h5file.keys())
         if 'metadata' not in data_keys:
@@ -227,7 +227,7 @@ class HDF5DatasetWriter:
         self._metadata = self._h5file['metadata']
         attr_names = list(self._metadata.attrs.keys())
         if 'class_names' not in attr_names:
-            self._metadata.create_group('class_names')
+            self._metadata.attrs['class_names'] = []
 
         if 'datasets' not in data_keys:
             self._datasets = self._h5file.create_group('datasets')
@@ -243,8 +243,8 @@ class HDF5DatasetWriter:
 
     def update_classes(self, new_class_names):
         self._check_file_opened()
-        class_names = self._metadata['class_names']
-        if 'value' not in list(class_names.attrs.keys()):
+        class_names = self._metadata.attrs['class_names']
+        if 'value' not in class_names:
             class_names.attrs['value'] = []
 
         existing_classes = list(class_names.attrs['value'])
@@ -557,7 +557,8 @@ def get_transforms(
         # Normalize using ImageNet statistics:
         transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-            )
+        ),
+        ToNumpy(),
     ])
 
 
@@ -569,10 +570,10 @@ def get_transforms(
 def build(
     data_dir: str,
     dataset_file: str,
-    transform: t.Union[Compose, t.Callable[[Image.Image], np.ndarray]],
+    transform: t.Union[Compose, t.Callable[[Image.Image], np.ndarray]]=None,
     img_size: t.Tuple[int, int]=(224, 224),
     train: bool=True,
-) -> HDF5DatasetWriter:
+) -> HDF5Writer:
     """
     Class method to build a dataset from data samples
     contained on data dir.
@@ -589,7 +590,7 @@ def build(
     folder_names = sorted(folder_names)
     
     ## Image files loading with its label from data directory.
-    iterator = tqdm(folder_names, total=len(folder_names), unit='label(s)')
+    iterator = tqdm(folder_names, total=len(folder_names), unit=' label(s)')
     for index, folder_name in enumerate(iterator):
         class_name = folder_name
         class_idx = index
@@ -627,7 +628,7 @@ def build(
     dataset_name = 'train' if train is True else 'test'
     h5_dataset = ds_writer.new_dataset(dataset_name)
     iterator = tqdm(
-        iterable=zip(paths, classes), total=len(paths), unit='image(s)'
+        iterable=zip(paths, classes), total=len(paths), unit=' image(s)'
     )
     for image_file, class_idx in iterator:
         image = Image.open(image_file).convert('RGB')
@@ -644,11 +645,11 @@ def build(
     LOGGER.info("Dataset metadata is added.")
 
     ## Dataset closing.
-    ds_writer.update_classes(class_names)
+    # ds_writer.update_classes(class_names)
     ds_writer.mark_completed()
     ds_writer.close()
     LOGGER.info("Dataset file completed and closed.")
-    return ds_writer
+    return h5_dataset
 
 ###############################################################################
 # MAIN IMPLEMENTATION
@@ -670,7 +671,7 @@ def _get_arguments():
         )
     )
     parser.add_argument(
-        '--train', type=str, action="store_true",
+        '--train', action="store_true",
         help=(
             "Specify if the dataset which we want to build "
             "is the training set to allow the dataset builder "
