@@ -45,3 +45,7 @@ AlexNet model parameters:
 """
 
 from .model import AlexNet, ModelConfig, ModelFactory, ModelRepository
+
+__all__ = [
+    'AlexNet', 'ModelConfig', 'ModelFactory', 'ModelRepository'
+]

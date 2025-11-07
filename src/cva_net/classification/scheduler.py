@@ -193,7 +193,7 @@ class SchedulerFactory:
         optim_factory_fn = IMPLEMENTED_SCHEDULERS[config.scheduler]
         instance = optim_factory_fn(optimizer, config)
         return instance
-    
+
     @staticmethod
     def load(
         repository: SchedulerRepository

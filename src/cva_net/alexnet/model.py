@@ -307,6 +307,11 @@ class ModelFactory:
         return loaded_model, model_config
 
 
+###############################################################################
+# MAIN IMPLEMENTATION
+###############################################################################
+
+
 def _get_argument():
     import argparse
 

@@ -284,11 +284,63 @@ def _get_arguments():
     return parser.parse_args()
 
 
-def _build_optimizer() -> None:
-    ...
+def _build_optimizer(args) -> None:
+    import sys
+    from pathlib import Path
+    
+    output_dir = Path(args.output if args.output is not None else './')
+    param_file = Path(args.params)
+    model_dir = Path(args.model)
+
+    ## Openning and loading the config file.
+    param_config = None
+    if param_file.is_file():
+        with open(param_file, mode='r', encoding='utf-8') as f:
+            param_config = yaml.safe_load(f)
+            LOGGER.info("Parametter config is loaded from " + str(param_file))
+
+    ## Model loading from file.
+    model = None
+    try:
+        ### Determination the model architecture.
+        model_config_file = model_dir / 'configs.yaml'
+        with open(model_config_file, mode='r', encoding='utf-8') as f:
+            model_config = yaml.safe_load(f)
+            model_arch = model_config.arch
+            LOGGER.info('Model architecture determinated: ' + str(model_arch))
+        ### Import the right implementation of the model component.
+        if model_arch == 'AlexNet':
+            from cva_net.alexnet import ModelRepository, ModelFactory
+        else:
+            raise NotImplementedError(
+                "The model architecture named `%s` is not implemented yet."
+                % (model_arch,)
+            )
+        ### Model weight loaded according the implementation found.
+        model_repository = ModelRepository(args.model)
+        model = ModelFactory.load(model_repository)
+        LOGGER.info("Model weights loaded successfully.")
+
+    except ImportError as e:
+        LOGGER.error("Error: " + str(e))
+        LOGGER.info("This model architecture is unknown or not implemented.")
+        sys.exit(1)
+    
+    ## Building of optimizer in question.
+    config = OptimizerConfig()
+    config.optimizer = args.optimizer
+    config.params = param_config
+    config.lr0 = args.lr0
+    config.weight_decay = args.weight_decay
+    config.eps = args.eps
+    config.betas = tuple(args.betas)
+    optimizer = OptimizerFactory.build(model, config=config)
+    repos_folder = output_dir / 'saved_optimizer'
+    repository = OptimizerRepository(repos_folder)
+    repository.save(opt=optimizer, config=config)
 
 
-def _load_optimizer() -> None:
+def _load_optimizer(args) -> None:
     ...
 
 
@@ -298,11 +350,15 @@ def main() -> None:
     from pathlib import Path
 
     args = _get_arguments()
-    output_dir = args.output if args.output is not None else ''
     saved_optimizer = None
 
     if os.path.isdir(args.optimizer):
         saved_optimizer = Path(args.optimizer)
+
+    if saved_optimizer is None:
+        _build_optimizer(args)
+    else:
+        _load_optimizer(args)
 
 
 if __name__ == '__main__':
