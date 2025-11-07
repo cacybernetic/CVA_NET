@@ -103,7 +103,7 @@ class OptimizerRepository:
         if map_location is None:
             map_location = torch.device('cpu')
         weights = torch.load(
-            f=str(file_path.absolute()), weights_only=False,
+            f=str(file_path.absolute()), weights_only=True,
             map_location=map_location
         )
         return weights
@@ -145,6 +145,32 @@ class OptimizerRepository:
 
     def load_optimizer(self, opt: optim.Optimizer) -> optim.Optimizer:
         weights = self.load_weights(self._optimizer_fp)
+
+        # DEBUG: Print detailed information
+        LOGGER.debug("=== DEBUGGING OPTIMIZER LOAD ===")
+        LOGGER.debug(
+            "Number of param groups in saved state: %d."
+            % (len(weights['param_groups']),)
+        )
+        LOGGER.debug(
+            "Number of param groups in new optimizer: %d."
+            % (len(opt.param_groups))
+        )
+        
+        for i, (saved_group, current_group) in enumerate(
+            zip(weights['param_groups'], opt.param_groups)
+        ):
+            saved_param_count = len(saved_group['params'])
+            current_param_count = len(current_group['params'])
+            LOGGER.debug(f"Group {i}:")
+            LOGGER.debug(f"  Saved params count: {saved_param_count}")
+            LOGGER.debug(f"  Current params count: {current_param_count}")
+            LOGGER.debug(f"  Saved LR: {saved_group['lr']}")
+            LOGGER.debug(f"  Current LR: {current_group['lr']}")
+            
+            if saved_param_count != current_param_count:
+                LOGGER.error(f"  ❌ MISMATCH in group {i}!")
+
         opt.load_state_dict(weights)
         return opt
 
@@ -174,7 +200,8 @@ def _adamw_optim_factory_fn(model: nn.Module, config: OptimizerConfig):
     params_list = []
     if config.layers_config is not None:
         LOGGER.info("Layers configuration:")
-        for layer_name, lr in config.layers_config.items():
+        for layer_name in sorted(config.layers_config.keys()):
+            lr = config.layers_config[layer_name]
             LOGGER.info("For learning rate: " + str(lr))
             found_sb_layers, found_params = _find_params(layer_name, model)
             for p in found_sb_layers:
@@ -219,13 +246,14 @@ class OptimizerFactory:
 
     @staticmethod
     def load(
+        model: nn.Module,
         repository: OptimizerRepository
     ) -> t.Tuple[optim.Optimizer, OptimizerConfig]:
-        model_config = OptimizerConfig()
-        model_config = repository.load_model_config(model_config)
-        model = OptimizerFactory.build(model_config)
-        loaded_model = repository.load_model(model)
-        return loaded_model, model_config
+        optimizer_config = OptimizerConfig()
+        optimizer_config = repository.load_optimizer_config(optimizer_config)
+        optimizer = OptimizerFactory.build(model, optimizer_config)
+        loaded_optimizer = repository.load_optimizer(optimizer)
+        return loaded_optimizer, optimizer_config
 
 
 ###############################################################################
@@ -242,9 +270,8 @@ def _get_arguments():
     # weight_decay: float=0
     # eps: float = 1e-8
     # betas: t.Tuple[float, float] = (0.9, 0.999)
-    optim_choices = list(IMPLEMENTED_OPTIMIZERS.keys())
     parser.add_argument(
-        '--optimizer', type=str, choices=optim_choices, default='AdamW',
+        '--optimizer', type=str, default='AdamW',
         help=(
             "The name of the optimizer selected or the path to file "
             "of the saved optimizer. By default `AdamW` is selected."
@@ -285,23 +312,8 @@ def _get_arguments():
     return parser.parse_args()
 
 
-def _build_optimizer(args) -> None:
+def _load_model_from_file(model_dir):
     import sys
-    from pathlib import Path
-    
-    output_dir = Path(args.output if args.output is not None else './')
-    layers_config = Path(args.layers_config) if args.layers_config is not None \
-          else None
-    model_dir = Path(args.model)
-
-    ## Openning and loading the config file.
-    param_config = None
-    if layers_config is not None and layers_config.is_file():
-        with open(layers_config, mode='r', encoding='utf-8') as f:
-            param_config = yaml.safe_load(f)
-            LOGGER.info(
-                "Parametter config is loaded from " + str(layers_config)
-            )
 
     ## Model loading from file.
     model = None
@@ -321,15 +333,37 @@ def _build_optimizer(args) -> None:
                 % (model_arch,)
             )
         ### Model weight loaded according the implementation found.
-        model_repository = ModelRepository(args.model)
+        model_repository = ModelRepository(str(model_dir))
         model, _ = ModelFactory.load(model_repository)
         LOGGER.info("Model weights loaded successfully.")
+        return model
 
     except ImportError as e:
         LOGGER.error("Error: " + str(e))
         LOGGER.info("This model architecture is unknown or not implemented.")
         sys.exit(1)
+
+
+def _build_optimizer(args) -> None:
+    from pathlib import Path
     
+    output_dir = Path(args.output if args.output is not None else './')
+    layers_config = Path(args.layers_config) if args.layers_config is not None \
+          else None
+    model_dir = Path(args.model)
+
+    ## Openning and loading the config file.
+    param_config = None
+    if layers_config is not None and layers_config.is_file():
+        with open(layers_config, mode='r', encoding='utf-8') as f:
+            param_config = yaml.safe_load(f)
+            LOGGER.info(
+                "Parametter config is loaded from " + str(layers_config)
+            )
+
+    ## Loading of model from file.
+    model = _load_model_from_file(model_dir)
+
     ## Building of optimizer in question.
     config = OptimizerConfig()
     config.optimizer = args.optimizer
@@ -343,27 +377,32 @@ def _build_optimizer(args) -> None:
     repository = OptimizerRepository(repos_folder)
     repository.save(opt=optimizer, config=config)
     LOGGER.info("Optimizer built and saved at: " + str(repos_folder))
+    LOGGER.info("Optimizer config: " + repr(config))
+    LOGGER.info("Optimizer instance: " + str(optimizer))
 
 
 def _load_optimizer(args) -> None:
-    ...
+    repository = OptimizerRepository(args.optimizer)
+    ## Loading of model from file.
+    model_dir = Path(args.model)
+    model = _load_model_from_file(model_dir)
+    ## Loading of optimizer using model instance.
+    optimizer, config = OptimizerFactory.load(model, repository=repository)
+    LOGGER.info("Optimizer config: " + repr(config))
+    LOGGER.info("Optimizer instance: " + str(optimizer))
 
 
 def main() -> None:
     import os
     import sys
-    from pathlib import Path
 
     args = _get_arguments()
-    saved_optimizer = None
-
-    if os.path.isdir(args.optimizer):
-        saved_optimizer = Path(args.optimizer)
-
-    if saved_optimizer is None:
+    if not os.path.isdir(args.optimizer):
         _build_optimizer(args)
     else:
         _load_optimizer(args)
+    
+    sys.exit(0)
 
 
 if __name__ == '__main__':
