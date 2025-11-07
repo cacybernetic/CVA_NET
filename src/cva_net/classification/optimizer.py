@@ -27,7 +27,7 @@ LOGGER = logging.getLogger(__name__)
 @dataclass
 class OptimizerConfig:
     optimizer: str = 'AdamW'
-    params: t.List[t.Dict[str,  t.Union[t.List[str], float]]] = None
+    layers_config: t.Dict[str, float] = None
     lr0: float=1e-4
     weight_decay: float=0
     eps: float = 1e-8
@@ -160,28 +160,29 @@ class OptimizerRepository:
 import re
 
 
-def _find_param(pattern: str, model: nn.Module) -> nn.Parameter:
+def _find_params(pattern: str, model: nn.Module) -> nn.Parameter:
+    found_sublayers = []
     found_params = []
     for name, param in model.named_parameters():
         if re.match(pattern=pattern, string=name):
+            found_sublayers.append(name)
             found_params.append(param)
-    return found_params
+    return found_sublayers, found_params
 
 
 def _adamw_optim_factory_fn(model: nn.Module, config: OptimizerConfig):
     params_list = []
-    if config.params is not None:
-        for param_conf in config.params:
-            names = param_conf['params']
-            found_params = []
-            for name in names:
-                found = _find_param(name, model)
-                found_params.extend(found)
-            params_list.append(
-                {'params': found_params, 'lr': param_conf['lr']}
-            )
+    if config.layers_config is not None:
+        LOGGER.info("Layers configuration:")
+        for layer_name, lr in config.layers_config.items():
+            LOGGER.info("For learning rate: " + str(lr))
+            found_sb_layers, found_params = _find_params(layer_name, model)
+            for p in found_sb_layers:
+                LOGGER.info("\t* " + str(p))
+            params_list.append({'params': found_params, 'lr': lr})
     else:
-        param_conf = list(model.parameters())
+        params_list = list(model.parameters())
+        LOGGER.info("All model parameters are registered for optimization.")
 
     assert params_list, "The model parameters list provided is empty."
     instance = optim.AdamW(
@@ -250,7 +251,7 @@ def _get_arguments():
         )
     )
     parser.add_argument(
-        '--params', type=str, default=None,
+        '--layers-config', type=str, default=None,
         help="The config file of the leyer parameter optimizations."
     )
     parser.add_argument(
@@ -289,15 +290,18 @@ def _build_optimizer(args) -> None:
     from pathlib import Path
     
     output_dir = Path(args.output if args.output is not None else './')
-    param_file = Path(args.params)
+    layers_config = Path(args.layers_config) if args.layers_config is not None \
+          else None
     model_dir = Path(args.model)
 
     ## Openning and loading the config file.
     param_config = None
-    if param_file.is_file():
-        with open(param_file, mode='r', encoding='utf-8') as f:
+    if layers_config is not None and layers_config.is_file():
+        with open(layers_config, mode='r', encoding='utf-8') as f:
             param_config = yaml.safe_load(f)
-            LOGGER.info("Parametter config is loaded from " + str(param_file))
+            LOGGER.info(
+                "Parametter config is loaded from " + str(layers_config)
+            )
 
     ## Model loading from file.
     model = None
@@ -306,7 +310,7 @@ def _build_optimizer(args) -> None:
         model_config_file = model_dir / 'configs.yaml'
         with open(model_config_file, mode='r', encoding='utf-8') as f:
             model_config = yaml.safe_load(f)
-            model_arch = model_config.arch
+            model_arch = model_config['arch']
             LOGGER.info('Model architecture determinated: ' + str(model_arch))
         ### Import the right implementation of the model component.
         if model_arch == 'AlexNet':
@@ -318,7 +322,7 @@ def _build_optimizer(args) -> None:
             )
         ### Model weight loaded according the implementation found.
         model_repository = ModelRepository(args.model)
-        model = ModelFactory.load(model_repository)
+        model, _ = ModelFactory.load(model_repository)
         LOGGER.info("Model weights loaded successfully.")
 
     except ImportError as e:
@@ -329,7 +333,7 @@ def _build_optimizer(args) -> None:
     ## Building of optimizer in question.
     config = OptimizerConfig()
     config.optimizer = args.optimizer
-    config.params = param_config
+    config.layers_config = param_config
     config.lr0 = args.lr0
     config.weight_decay = args.weight_decay
     config.eps = args.eps
@@ -338,6 +342,7 @@ def _build_optimizer(args) -> None:
     repos_folder = output_dir / 'saved_optimizer'
     repository = OptimizerRepository(repos_folder)
     repository.save(opt=optimizer, config=config)
+    LOGGER.info("Optimizer built and saved at: " + str(repos_folder))
 
 
 def _load_optimizer(args) -> None:
