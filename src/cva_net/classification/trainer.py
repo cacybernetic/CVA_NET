@@ -1,9 +1,51 @@
+import logging
 import typing as t
 
+from typing_extensions import Self
 import torch
 from torch import nn
 from torch import optim
 from torch.utils.data import Dataset, DataLoader
+
+LOGGER = logging.getLogger(__name__)
+
+
+class Result:
+
+    def __init__(self) -> None:
+        self._values = {}
+
+    @property
+    def column_names(self) -> t.List[str]:
+        return list(self._values.keys())
+    
+    @property
+    def values(self) -> t.Dict[str, t.List[float]]:
+        return self._values
+
+    def add(self, new: t.Dict[str, torch.Tensor]) -> Self:
+        for name, value in new.items():
+            if name not in self._values:
+                self._values[name] = list()
+            self._values[name].append(value.item())
+        return self
+
+    def __add__(self, new: t.Dict[str, torch.Tensor]) -> Self:
+        return self.add(new)
+
+    def __radd__(self, new: t.Dict[str, torch.Tensor]) -> Self:
+        return self.add(new)
+
+    def __getitem__(
+        self,
+        index: t.Union[int, str],
+    ) -> t.Union[t.Dict[str, float], t.List[float]]:
+        if isinstance(index, str):
+            return self._values[index]
+        value = {}
+        for name in self._values:
+            value[name] = self._values[name][index]
+        return value
 
 
 def output_function(
@@ -18,7 +60,7 @@ def output_function(
           the first tensor contains the class ids predicted
           and the second tensor contains the softmax confidences.
         """
-        probs = torch.softmax(logits, dim=-1)  # [n, num_classes]
+        probs = torch.log_softmax(logits, dim=-1)  # [n, num_classes]
         class_ids = torch.argmax(probs, dim=-1)  # [n,]
         confidences = torch.max(probs, dim=-1).values  # [n,]
         return class_ids, confidences
@@ -70,7 +112,7 @@ class Trainer:
         self.epoch_idx = 0
         self.batch_idx = 0
         self.num_acc = 0
-        self.history = []
+        self.result = Result()
         self.step = None
 
         self._post_process = post_processing_func
@@ -105,7 +147,11 @@ class Trainer:
         self._model = self._model.to(self._device)
         self._compiled = True
 
-    def compute_metric(self, logits, targets) -> t.Dict[str, torch.Tensor]:
+    def compute_metric(
+        self,
+        logits: torch.Tensor,
+        targets: torch.Tensor
+    ) -> t.Tuple[t.Dict[str, torch.Tensor], torch.Tensor]:
         ## Computing of class predictions from model logits.
         results = self.post_processing_func(logits)
         predictions = results[0]
@@ -115,29 +161,29 @@ class Trainer:
         prediction_score = self._precision_score(predictions, targets)
         recall_score = self._recall_score(predictions, targets)
         return dict(
-            confidences=confidences, accuracy_score=accuracy_score,
-            prediction_score=prediction_score, recall_score=recall_score,
-        )
+            accuracy_score=accuracy_score, precision_score=prediction_score,
+            recall_score=recall_score,
+        ), confidences
 
     def eval_step(
         self,
         sample_batch: torch.Tensor,
         target_batch: torch.Tensor,
-    ) -> t.Dict[str, torch.Tensor]:
+    ) -> t.Tuple[t.Dict[str, torch.Tensor], torch.Tensor]:
         ## Forward pass.
         logits = self._model.forward(sample_batch)
         ## Loss compute.
         loss = self._criterion(logits, target_batch)
         ## Metric calculation.
-        results = self.compute_metric(logits, target_batch)
+        results, confs = self.compute_metric(logits, target_batch)
         results.update(dict(loss=torch.tensor(loss.item())))
-        return results
+        return results, confs
 
     def train_step(
         self,
         sample_batch: torch.Tensor,
         target_batch: torch.Tensor,
-    ) -> t.Dict[str, torch.Tensor]:
+    ) ->  t.Tuple[t.Dict[str, torch.Tensor], torch.Tensor]:
         ## Forward pass.
         logits = self._model.forward(sample_batch)
         ## Loss compute.
@@ -152,9 +198,23 @@ class Trainer:
             ### Cleaning gradient accumulated.
             self._optimizer.zero_grad()
         ## Metric calculation.
-        results = self.compute_metric(logits, target_batch)
+        results, confs = self.compute_metric(logits, target_batch)
         results.update(dict(loss=torch.tensor(loss.item())))
-        return results
+        return results, confs
+    
+    def train(self, data_loader) -> t.Dict[str, t.List[float]]:
+        self.step = "train"
+        self._model.train()
+        total_accuracy_score = 0
+        precision_score
+        for batch_idx, (features, targets) in enumerate(self._train_loader):
+            self.batch_idx = batch_idx
+            features = features.to(self._device)
+            targets = targets.to(self._device)
+            results, confs = self.train_step(features, targets)
+
+
+
     
     def _update_history(self, results) -> None:
         ...
@@ -162,15 +222,7 @@ class Trainer:
     def execute(self) -> t.List[t.Dict[str, t.Any]]:
         for epoch in range(self.num_epochs):
             self.epoch_idx = epoch
-            self.step = "train"
-            self._model.train()
-            train_data_iterator = enumerate(self._train_loader)
-            for batch_idx, (features, targets) in train_data_iterator:
-                self.batch_idx = batch_idx
-                features = features.to(self._device)
-                targets = targets.to(self._device)
-                results = self.train_step(features, targets)
-                self._update_history(results)
+
 
             if self._val_loader is None:
                 continue
