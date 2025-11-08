@@ -8,6 +8,9 @@ from torch import optim
 from torch.utils.data import Dataset, DataLoader
 
 LOGGER = logging.getLogger(__name__)
+EXECUTION_RESULTS = t.Tuple[
+    t.Dict[str, t.List[float]], t.Optional[t.Dict[str, t.List[float]]]
+]
 
 
 class Result:
@@ -27,7 +30,7 @@ class Result:
         for name, value in new.items():
             if name not in self._values:
                 self._values[name] = list()
-            self._values[name].append(value.item())
+            self._values[name].append(value.cpu().detach().item())
         return self
 
     def __add__(self, new: t.Dict[str, torch.Tensor]) -> Self:
@@ -115,6 +118,17 @@ class Trainer:
         self.result = Result()
         self.step = None
 
+        self.train_loss = None
+        self.train_accuracy_score = None
+        self.train_precision_score = None
+        self.train_recall_score = None
+        self.train_avg_confidence = None
+        self.eval_loss = None
+        self.eval_accuracy_score = None
+        self.eval_precision_score = None
+        self.eval_recall_score = None
+        self.eval_avg_confidence = None
+
         self._post_process = post_processing_func
         self._accuracy_score = AccuracyScore()
         self._precision_score = PrecisionScore()
@@ -146,6 +160,19 @@ class Trainer:
             )
         self._model = self._model.to(self._device)
         self._compiled = True
+    
+    def feed_forward(
+        self,
+        features: torch.Tensor,
+        targets: torch.Tensor=None
+    ) -> t.Tuple[torch.Tensor, t.Optional[torch.Tensor]]:
+        ## Forward pass.
+        logits = self._model.forward(features)
+        ## Loss computing if targets provided.
+        loss = None
+        if targets is not None:
+            loss = self._criterion(logits, targets)
+        return logits, loss
 
     def compute_metric(
         self,
@@ -165,31 +192,16 @@ class Trainer:
             recall_score=recall_score,
         ), confidences
 
-    def eval_step(
-        self,
-        sample_batch: torch.Tensor,
-        target_batch: torch.Tensor,
-    ) -> t.Tuple[t.Dict[str, torch.Tensor], torch.Tensor]:
-        ## Forward pass.
-        logits = self._model.forward(sample_batch)
-        ## Loss compute.
-        loss = self._criterion(logits, target_batch)
-        ## Metric calculation.
-        results, confs = self.compute_metric(logits, target_batch)
-        results.update(dict(loss=torch.tensor(loss.item())))
-        return results, confs
-
     def train_step(
         self,
-        sample_batch: torch.Tensor,
-        target_batch: torch.Tensor,
+        samples_batch: torch.Tensor,
+        targets_batch: torch.Tensor,
     ) ->  t.Tuple[t.Dict[str, torch.Tensor], torch.Tensor]:
         ## Forward pass.
-        logits = self._model.forward(sample_batch)
-        ## Loss compute.
-        loss = self._criterion(logits, target_batch)
+        logits, loss = self.feed_forward(samples_batch)
         ## Backward pass: compute gradient.
         loss.backword()
+        loss_value = torch.tensor(loss.item(), device=self._device)
         ## Gradient accumulation.
         self.num_acc += logits.shape[0]
         if self.num_acc >= self.gradient_acc:
@@ -198,55 +210,108 @@ class Trainer:
             ### Cleaning gradient accumulated.
             self._optimizer.zero_grad()
         ## Metric calculation.
-        results, confs = self.compute_metric(logits, target_batch)
-        results.update(dict(loss=torch.tensor(loss.item())))
+        results, confs = self.compute_metric(logits, targets_batch)
+        results.update(dict(loss=loss_value))
         return results, confs
-    
-    def train(self, data_loader) -> t.Dict[str, t.List[float]]:
-        self.step = "train"
+
+    def eval_step(
+        self,
+        samples_batch: torch.Tensor,
+        targets_batch: torch.Tensor,
+    ) -> t.Tuple[t.Dict[str, torch.Tensor], torch.Tensor]:
+        ## Forward pass.
+        logits, loss = self.feed_forward(samples_batch)
+        loss_value = torch.tensor(loss.item(), device=self._device)
+        ## Metric calculation.
+        results, confs = self.compute_metric(logits, targets_batch)
+        results.update(dict(loss=loss_value))
+        return results, confs
+
+    def train(self, data_loader) -> t.Dict[str, torch.Tensor]:
+        total_loss = torch.tensor(0)
+        total_accuracy = torch.tensor(0)
+        total_precision = torch.tensor(0)
+        total_recall = torch.tensor(0)
+        total_confs = torch.tensor(0)
+
         self._model.train()
-        total_accuracy_score = 0
-        precision_score
-        for batch_idx, (features, targets) in enumerate(self._train_loader):
+        for batch_idx, (features, targets) in enumerate(data_loader):
             self.batch_idx = batch_idx
             features = features.to(self._device)
             targets = targets.to(self._device)
             results, confs = self.train_step(features, targets)
 
+            total_loss += results['loss']
+            total_accuracy += results['accuracy_score']
+            total_precision += results['precision_score']
+            total_recall += results['recall_score']
+            total_confs += confs.mean(dtype=torch.float32)
+            total_batchs = batch_idx + 1
 
+            self.train_loss = total_loss / total_batchs
+            self.train_accuracy_score = total_accuracy / total_batchs
+            self.train_precision_score = total_precision / total_batchs
+            self.train_recall_score = total_recall / total_batchs
+            self.train_avg_confidence = total_confs / total_batchs
 
-    
-    def _update_history(self, results) -> None:
-        ...
+        final_results += dict(
+            train_loss=self.train_loss,
+            train_accuracy_score=self.train_accuracy_score,
+            train_precision_score=self.train_precision_score,
+            train_recall_score=self.train_recall_score,
+            train_avg_confidence=self.train_avg_confidence,
+        )
+        return final_results
 
-    def execute(self) -> t.List[t.Dict[str, t.Any]]:
-        for epoch in range(self.num_epochs):
-            self.epoch_idx = epoch
+    def eval(self, data_loader) -> t.Dict[str, torch.Tensor]:
+        total_loss = torch.tensor(0)
+        total_accuracy = torch.tensor(0)
+        total_precision = torch.tensor(0)
+        total_recall = torch.tensor(0)
+        total_confs = torch.tensor(0)
 
-
-            if self._val_loader is None:
-                continue
-            self.step = 'val'
-            self._model.eval()
-            with torch.no_grad():
-                val_data_iterator = enumerate(self._val_loader)
-                for batch_idx, (features, targets) in val_data_iterator:
-                    self.batch_idx = batch_idx
-                    features = features.to(self._device)
-                    targets = targets.to(self._device)
-                    results = self.eval_step(features, targets)
-                    self._update_history(results)
-        
-        if self._test_loader is None:
-            return self.history
-        self.step = 'test'
         self._model.eval()
         with torch.no_grad():
-            val_data_iterator = enumerate(self._val_loader)
-            for batch_idx, (features, targets) in val_data_iterator:
+            for batch_idx, (features, targets) in enumerate(data_loader):
                 self.batch_idx = batch_idx
                 features = features.to(self._device)
                 targets = targets.to(self._device)
-                results = self.eval_step(features, targets)
-                self._update_history(results)
-        return self.history
+                results, confs = self.eval_step(features, targets)
+
+                total_loss += results['loss']
+                total_accuracy += results['accuracy_score']
+                total_precision += results['precision_score']
+                total_recall += results['recall_score']
+                total_confs += confs.mean(dtype=torch.float32)
+                total_batchs = batch_idx + 1
+
+                self.eval_loss = total_loss / total_batchs
+                self.eval_accuracy_score = total_accuracy / total_batchs
+                self.eval_precision_score = total_precision / total_batchs
+                self.eval_recall_score = total_recall / total_batchs
+                self.eval_avg_confidence = total_confs / total_batchs
+
+        final_results += dict(
+            eval_loss=self.eval_loss,
+            eval_accuracy_score=self.eval_accuracy_score,
+            eval_precision_score=self.eval_precision_score,
+            eval_recall_score=self.eval_recall_score,
+            eval_avg_score=self.eval_avg_confidence
+        )
+        return final_results
+
+    def execute(self) -> EXECUTION_RESULTS:
+        for epoch in range(self.num_epochs):
+            self.epoch_idx = epoch
+            self.step = "train"
+            results = self.train(self._train_loader)
+            self.result += results
+            self.step = "val"
+            results = self.eval(self._val_loader)
+            self.result += results
+
+        if self._test_loader is None:
+            return self.result.values
+        self.step = 'test'
+        test_results = self.eval(self._test_loader)
+        return self.result.values, test_results
