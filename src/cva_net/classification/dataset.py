@@ -693,7 +693,7 @@ def get_dataloader(
     num_val_samples = int(val * len(test_dataset_source))
     val_dataset = Dataset(test_dataset_source, end_index=num_val_samples)
 
-    ## Create data loaders
+    ## Create data loaders.
     train_loader = DataLoader(
         dataset=train_dataset, batch_size=batch_size, shuffle=True,
         num_workers=num_workers, pin_memory=pin_memory, drop_last=drop_last,
