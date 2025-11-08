@@ -29,10 +29,11 @@ class Trainer:
         self,
         *,
         train_dataset: Dataset,
-        test_dataset: Dataset,
         model: nn.Module,
         criterion: nn.Module,
         optimizer: optim.Optimizer,
+        val_dataset: Dataset=None,
+        test_dataset: Dataset=None,
         post_processing_func: t.Callable[
              [torch.Tensor],
              t.Tuple[torch.Tensor, torch.Tensor]
@@ -42,6 +43,7 @@ class Trainer:
         gradient_acc: int=256,
     ) -> None:
         self._train_dataset = train_dataset
+        self._val_dataset = val_dataset
         self._test_dataset = test_dataset
         self._model = model
         self._criterion = criterion
@@ -56,16 +58,44 @@ class Trainer:
         self.num_acc = 0
         self.history = []
 
+        self._post_process = post_processing_func
         self._accuracy_score = AccuracyScore()
         self._precision_score = PrecisionScore()
         self._recall_score = RecallScore()
-        self._post_process = post_processing_func
+    
+    def compute_metric(self, logits, targets) -> t.Dict[str, torch.Tensor]:
+        ## Computing of class predictions from model logits.
+        results = self.post_processing_func(logits)
+        predictions = results[0]
+        confidences = results[1]
+        ## Metric calculation.
+        accuracy_score = self._accuracy_score(predictions, targets)
+        prediction_score = self._precision_score(predictions, targets)
+        recall_score = self._recall_score(predictions, targets)
+        return dict(
+            confidences=confidences, accuracy_score=accuracy_score,
+            prediction_score=prediction_score, recall_score=recall_score,
+        )
+
+    def eval_step(
+        self,
+        sample_batch: torch.Tensor,
+        target_batch: torch.Tensor,
+    ) -> t.Dict[str, torch.Tensor]:
+        with torch.no_grad():
+            ## Forward pass.
+            logits = self._model.forward(sample_batch)
+            ## Loss compute.
+            loss = self._criterion(logits, target_batch)
+        results = self.compute_metric(logits, target_batch)
+        results.update(dict(loss=torch.tensor(loss.item())))
+        return results
 
     def train_step(
         self,
         sample_batch: torch.Tensor,
         target_batch: torch.Tensor,
-    ):
+    ) -> t.Dict[str, torch.Tensor]:
         ## Forward pass.
         logits = self._model.forward(sample_batch)
         ## Loss compute.
@@ -79,20 +109,9 @@ class Trainer:
             self.num_acc = 0
             ### Cleaning gradient accumulated.
             self._optimizer.zero_grad()
-        ## Computing of class predictions from model logits.
-        results = self.post_processing_func()
-        predictions = results[0]
-        confidences = results[1]
-        ## Metric calculation.
-        accuracy_score = self._accuracy_score(predictions, target_batch)
-        prediction_score = self._precision_score(predictions, target_batch)
-        recall_score = self._recall_score(predictions, target_batch)
-        return dict(
-            confidences=confidences,
-            accuracy_score=accuracy_score,
-            prediction_score=prediction_score,
-            recall_score=recall_score,
-        )
+        results = self.compute_metric(logits, target_batch)
+        results.update(dict(loss=torch.tensor(loss.item())))
+        return results
 
     def execute(self) -> t.List[t.Dict[str, t.Any]]:
         ...
