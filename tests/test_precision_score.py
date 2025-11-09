@@ -124,7 +124,7 @@ def precision_score_torch(
     average: str='binary',
     pos_label: int=1,
     zero_division: float=0.0
-):
+) -> torch.Tensor:
     """
     Compute precision score using only PyTorch tensors.
 
@@ -170,7 +170,7 @@ def precision_score_torch(
                 "Please choose another average setting."
             )
 
-        # Binary precision calculation
+        # Binary precision calculation.
         true_positive = ((y_true_cpu == pos_label) & (y_pred_cpu == pos_label)).sum().float()
         false_positive = ((y_true_cpu != pos_label) & (y_pred_cpu == pos_label)).sum().float()
 
@@ -182,15 +182,15 @@ def precision_score_torch(
         else:
             precision = true_positive / denominator
             precision = precision.to(device)
-        return precision.item()
+        return precision
 
     elif average in ['micro', 'macro', 'weighted', 'none']:
-        # Multi-class precision calculation
+        # Multi-class precision calculation.
         precisions = []
         supports = []
 
         for cls in classes:
-            # For each class, treat it as positive and others as negative
+            # For each class, treat it as positive and others as negative.
             true_positive = ((y_true_cpu == cls) & (y_pred_cpu == cls)).sum().float()
             false_positive = ((y_true_cpu != cls) & (y_pred_cpu == cls)).sum().float()
 
@@ -207,7 +207,7 @@ def precision_score_torch(
         supports = torch.stack(supports)
 
         if average == 'micro':
-            # Micro-precision: global TP / (TP + FP)
+            # Micro-precision: global TP / (TP + FP).
             total_true_positive = sum([
                 ((y_true_cpu == cls) & (y_pred_cpu == cls)).sum().float() 
                 for cls in classes
@@ -224,22 +224,23 @@ def precision_score_torch(
                 result = total_true_positive / denominator
 
         elif average == 'macro':
-            # Simple average of per-class precisions
+            # Simple average of per-class precisions.
             result = precisions.mean()
 
         elif average == 'weighted':
-            # Weighted average by support
+            # Weighted average by support.
             if supports.sum() == 0:
                 result = torch.tensor(zero_division, dtype=torch.float32)
             else:
                 result = (precisions * supports).sum() / supports.sum()
 
         elif average == 'none':
-            # Return precision for each class
+            # Return precision for each class.
             result = precisions.to(device)
-            return result.numpy()
+            return result
 
-        return result.to(device).item()
+        result = result.to(device)
+        return result
 
     else:
         raise ValueError(
@@ -269,7 +270,7 @@ def test_precision_function():
     
     LOGGER.debug(f"PyTorch precision: {torch_prec:.6f}")
     LOGGER.debug(f"sklearn precision: {sklearn_prec:.6f}")
-    LOGGER.debug(f"Match: {np.isclose(torch_prec, sklearn_prec)}")
+    LOGGER.debug(f"Match: {np.isclose(torch_prec.numpy(), sklearn_prec)}")
     
     # Test 2: Binary classification - with false positives
     LOGGER.debug("\n" + "=" * 70)
@@ -299,7 +300,7 @@ def test_precision_function():
     
     LOGGER.debug(f"PyTorch precision: {torch_prec:.6f}")
     LOGGER.debug(f"sklearn precision: {sklearn_prec:.6f}")
-    LOGGER.debug(f"Match: {np.isclose(torch_prec, sklearn_prec)}")
+    LOGGER.debug(f"Match: {np.isclose(torch_prec.numpy(), sklearn_prec)}")
     
     # Test 4: Multi-class - macro average
     LOGGER.debug("\n" + "=" * 70)
@@ -314,7 +315,7 @@ def test_precision_function():
     
     LOGGER.debug(f"PyTorch precision: {torch_prec:.6f}")
     LOGGER.debug(f"sklearn precision: {sklearn_prec:.6f}")
-    LOGGER.debug(f"Match: {np.isclose(torch_prec, sklearn_prec)}")
+    LOGGER.debug(f"Match: {np.isclose(torch_prec.numpy(), sklearn_prec)}")
     
     # Test 5: Multi-class - micro average
     LOGGER.debug("\n" + "=" * 70)
@@ -329,7 +330,7 @@ def test_precision_function():
     
     LOGGER.debug(f"PyTorch precision: {torch_prec:.6f}")
     LOGGER.debug(f"sklearn precision: {sklearn_prec:.6f}")
-    LOGGER.debug(f"Match: {np.isclose(torch_prec, sklearn_prec)}")
+    LOGGER.debug(f"Match: {np.isclose(torch_prec.numpy(), sklearn_prec)}")
     
     # Test 6: Multi-class - weighted average
     LOGGER.debug("\n" + "=" * 70)
@@ -344,7 +345,7 @@ def test_precision_function():
     
     LOGGER.debug(f"PyTorch precision: {torch_prec:.6f}")
     LOGGER.debug(f"sklearn precision: {sklearn_prec:.6f}")
-    LOGGER.debug(f"Match: {np.isclose(torch_prec, sklearn_prec)}")
+    LOGGER.debug(f"Match: {np.isclose(torch_prec.numpy(), sklearn_prec)}")
     
     # Test 7: Multi-class - per-class precision (none)
     LOGGER.debug("\n" + "=" * 70)
@@ -359,7 +360,7 @@ def test_precision_function():
     
     LOGGER.debug(f"PyTorch precision per class: {torch_prec}")
     LOGGER.debug(f"sklearn precision per class: {sklearn_prec}")
-    LOGGER.debug(f"Match: {np.allclose(torch_prec, sklearn_prec)}")
+    LOGGER.debug(f"Match: {np.allclose(torch_prec.numpy(), sklearn_prec)}")
     
     # Test 8: Edge case - zero division
     LOGGER.debug("\n" + "=" * 70)
@@ -374,7 +375,7 @@ def test_precision_function():
     
     LOGGER.debug(f"PyTorch precision: {torch_prec:.6f}")
     LOGGER.debug(f"sklearn precision: {sklearn_prec:.6f}")
-    LOGGER.debug(f"Match: {np.isclose(torch_prec, sklearn_prec)}")
+    LOGGER.debug(f"Match: {np.isclose(torch_prec.numpy(), sklearn_prec)}")
     
     # Test 9: Large random dataset
     LOGGER.debug("\n" + "=" * 70)
@@ -391,8 +392,8 @@ def test_precision_function():
         LOGGER.debug(f"\n{avg_type.capitalize()} average:")
         LOGGER.debug(f"  PyTorch: {torch_prec:.6f}")
         LOGGER.debug(f"  sklearn: {sklearn_prec:.6f}")
-        LOGGER.debug(f"  Match: {np.isclose(torch_prec, sklearn_prec)}")
-    
+        LOGGER.debug(f"  Match: {np.isclose(torch_prec.numpy(), sklearn_prec)}")
+
     LOGGER.debug("\n" + "=" * 70)
     LOGGER.debug("All tests completed!")
     LOGGER.debug("=" * 70)

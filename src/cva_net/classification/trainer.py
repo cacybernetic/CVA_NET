@@ -45,7 +45,7 @@ def _precision_score(
     average: str='binary',
     pos_label: int=1,
     zero_division: float=0.0
-):
+) -> torch.Tensor:
     """
     Compute precision score using only PyTorch tensors.
 
@@ -91,7 +91,7 @@ def _precision_score(
                 "Please choose another average setting."
             )
 
-        # Binary precision calculation
+        # Binary precision calculation.
         true_positive = ((y_true_cpu == pos_label) & (y_pred_cpu == pos_label)).sum().float()
         false_positive = ((y_true_cpu != pos_label) & (y_pred_cpu == pos_label)).sum().float()
 
@@ -103,15 +103,15 @@ def _precision_score(
         else:
             precision = true_positive / denominator
             precision = precision.to(device)
-        return precision.item()
+        return precision
 
     elif average in ['micro', 'macro', 'weighted', 'none']:
-        # Multi-class precision calculation
+        # Multi-class precision calculation.
         precisions = []
         supports = []
 
         for cls in classes:
-            # For each class, treat it as positive and others as negative
+            # For each class, treat it as positive and others as negative.
             true_positive = ((y_true_cpu == cls) & (y_pred_cpu == cls)).sum().float()
             false_positive = ((y_true_cpu != cls) & (y_pred_cpu == cls)).sum().float()
 
@@ -128,7 +128,7 @@ def _precision_score(
         supports = torch.stack(supports)
 
         if average == 'micro':
-            # Micro-precision: global TP / (TP + FP)
+            # Micro-precision: global TP / (TP + FP).
             total_true_positive = sum([
                 ((y_true_cpu == cls) & (y_pred_cpu == cls)).sum().float() 
                 for cls in classes
@@ -145,22 +145,23 @@ def _precision_score(
                 result = total_true_positive / denominator
 
         elif average == 'macro':
-            # Simple average of per-class precisions
+            # Simple average of per-class precisions.
             result = precisions.mean()
 
         elif average == 'weighted':
-            # Weighted average by support
+            # Weighted average by support.
             if supports.sum() == 0:
                 result = torch.tensor(zero_division, dtype=torch.float32)
             else:
                 result = (precisions * supports).sum() / supports.sum()
 
         elif average == 'none':
-            # Return precision for each class
+            # Return precision for each class.
             result = precisions.to(device)
-            return result.numpy()
+            return result
 
-        return result.to(device).item()
+        result = result.to(device)
+        return result
 
     else:
         raise ValueError(
@@ -169,17 +170,132 @@ def _precision_score(
         )
 
 
-class AccuracyScore:
-    ...
+def _recall_score(
+    y_true,
+    y_pred,
+    average='binary',
+    pos_label=1,
+    zero_division=0.0
+) -> torch.Tensor:
+    """
+    Compute recall score using only PyTorch tensors.
 
+    :param y_true: torch.Tensor or array-like True labels.
+    :param y_pred: torch.Tensor or array-like Predicted labels.
+    :param average: str, default='binary'
+      One of ['binary', 'micro', 'macro', 'weighted', 'none'].
+      - 'binary': Only report results for the class specified by pos_label.
+      - 'micro': Calculate metrics globally by counting total TP and FN.
+      - 'macro': Calculate metrics for each label, return unweighted mean.
+      - 'weighted': Calculate metrics for each label, return weighted mean by support.
+      - 'none': Return recall for each class.
+    :param pos_label: int, default=1.
+      The label of the positive class (for binary classification).
+    :param zero_division: float, default=0.0
+      Value to return when there is a zero division.
 
-class PrecisionScore:
-    ...
+    returns: torch.Tensor of float of Recall score(s).
+    """
+    # Convert to tensors if needed
+    if not isinstance(y_true, torch.Tensor):
+        y_true = torch.tensor(y_true)
+    if not isinstance(y_pred, torch.Tensor):
+        y_pred = torch.tensor(y_pred)
+    
+    # Ensure both tensors have the same shape
+    if y_true.shape != y_pred.shape:
+        raise ValueError(f"Shapes of y_true {y_true.shape} and y_pred {y_pred.shape} must match")
 
+    # Get unique classes
+    classes = torch.unique(torch.cat([y_true, y_pred]))
+    classes = classes.sort().values
 
-class RecallScore:
-    ...
+    # Store original device
+    device = y_true.device
+    y_true_cpu = y_true.cpu()
+    y_pred_cpu = y_pred.cpu()
 
+    if average == 'binary':
+        if len(classes) > 2:
+            raise ValueError(
+                "Target is multiclass but average='binary'. "
+                "Please choose another average setting."
+            )
+
+        # Binary recall calculation: TP / (TP + FN)
+        true_positive = ((y_true_cpu == pos_label) & (y_pred_cpu == pos_label)).sum().float()
+        false_negative = ((y_true_cpu == pos_label) & (y_pred_cpu != pos_label)).sum().float()
+
+        denominator = true_positive + false_negative
+        if denominator == 0:
+            recall = torch.tensor(zero_division, dtype=torch.float32, device=device)
+        else:
+            recall = true_positive / denominator
+            recall = recall.to(device)
+
+        return recall
+
+    elif average in ['micro', 'macro', 'weighted', 'none']:
+        # Multi-class recall calculation
+        recalls = []
+        supports = []
+
+        for cls in classes:
+            # For each class, treat it as positive and others as negative
+            true_positive = ((y_true_cpu == cls) & (y_pred_cpu == cls)).sum().float()
+            false_negative = ((y_true_cpu == cls) & (y_pred_cpu != cls)).sum().float()
+
+            denominator = true_positive + false_negative
+            if denominator == 0:
+                recall_cls = torch.tensor(zero_division, dtype=torch.float32)
+            else:
+                recall_cls = true_positive / denominator
+
+            recalls.append(recall_cls)
+            supports.append((y_true_cpu == cls).sum().float())
+
+        recalls = torch.stack(recalls)
+        supports = torch.stack(supports)
+
+        if average == 'micro':
+            # Micro-recall: global TP / (TP + FN)
+            total_true_positive = sum([
+                ((y_true_cpu == cls) & (y_pred_cpu == cls)).sum().float() 
+                for cls in classes
+            ])
+            total_false_negative = sum([
+                ((y_true_cpu == cls) & (y_pred_cpu != cls)).sum().float() 
+                for cls in classes
+            ])
+
+            denominator = total_true_positive + total_false_negative
+            if denominator == 0:
+                result = torch.tensor(zero_division, dtype=torch.float32)
+            else:
+                result = total_true_positive / denominator
+
+        elif average == 'macro':
+            # Simple average of per-class recalls
+            result = recalls.mean()
+
+        elif average == 'weighted':
+            # Weighted average by support
+            if supports.sum() == 0:
+                result = torch.tensor(zero_division, dtype=torch.float32)
+            else:
+                result = (recalls * supports).sum() / supports.sum()
+
+        elif average == 'none':
+            # Return recall for each class
+            result = recalls.to(device)
+            return result
+
+        return result.to(device)
+
+    else:
+        raise ValueError(
+            "Average should be one of ['binary', 'micro', 'macro', 'weighted', 'none']"
+        )
 
 
 class Result:
@@ -355,7 +471,7 @@ class Trainer:
         ## Metric calculation.
         accuracy_score = _accuracy_score(predictions, targets)
         prediction_score = _precision_score(predictions, targets)
-        recall_score = self._recall_score(predictions, targets)
+        recall_score = _recall_score(predictions, targets)
         return dict(
             accuracy_score=accuracy_score, precision_score=prediction_score,
             recall_score=recall_score,
