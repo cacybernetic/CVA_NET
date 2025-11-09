@@ -28,7 +28,7 @@ def test_trainer_class() -> None:
 
     trainer = Trainer(
         train_dataset=train_dataset, model=model, criterion=criterion,
-        optimizer=optimizer, test_dataset=test_dataset, num_epochs=10,
+        optimizer=optimizer, test_dataset=test_dataset, num_epochs=20,
     )
     trainer.compile()
     results, test_results = trainer.execute()
