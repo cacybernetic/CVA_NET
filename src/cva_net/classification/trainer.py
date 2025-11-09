@@ -13,6 +13,45 @@ EXECUTION_RESULTS = t.Tuple[
 ]
 
 
+def _accuracy_score(y_pred: torch.Tensor, y_true: torch.Tensor):
+    """
+    Compute accuracy score using only PyTorch tensors.
+
+    :param y_pred: torch.Tensor of predicted labels.
+    :param y_true: torch.Tensor of true labels.
+    :returns: A torch.Tensor containing the accuracy score.
+    """
+    # Ensure both tensors are on the same device and have the same shape.
+    if y_true.shape != y_pred.shape:
+        raise ValueError(
+            "Shapes of y_true %s and y_pred %s must match."
+            % (str(y_true.shape), str(y_pred.shape))
+        )
+
+    # Calculate number of correct predictions:
+    correct = torch.eq(y_true, y_pred).sum()
+    # Calculate total number of predictions:
+    total = torch.tensor(
+        y_true.shape[0], dtype=torch.float32, device=y_true.device
+    )
+    # Compute accuracy
+    accuracy = correct.float() / total
+    return accuracy
+
+
+class AccuracyScore:
+    ...
+
+
+class PrecisionScore:
+    ...
+
+
+class RecallScore:
+    ...
+
+
+
 class Result:
 
     def __init__(self) -> None:
@@ -130,14 +169,14 @@ class Trainer:
         self.eval_avg_confidence = None
 
         self._post_process = post_processing_func
-        self._accuracy_score = AccuracyScore()
-        self._precision_score = PrecisionScore()
-        self._recall_score = RecallScore()
+        # self._accuracy_score = AccuracyScore()
+        # self._precision_score = PrecisionScore()
+        # self._recall_score = RecallScore()
         self._train_loader = None
         self._val_loader = None
         self._test_loader = None
         self._compiled = False
-    
+
     def compile(self) -> None:
         """This method must be called before execution method."""
         # Creation of data loader.
@@ -184,7 +223,7 @@ class Trainer:
         predictions = results[0]
         confidences = results[1]
         ## Metric calculation.
-        accuracy_score = self._accuracy_score(predictions, targets)
+        accuracy_score = _accuracy_score(predictions, targets)
         prediction_score = self._precision_score(predictions, targets)
         recall_score = self._recall_score(predictions, targets)
         return dict(
@@ -301,6 +340,12 @@ class Trainer:
         return final_results
 
     def execute(self) -> EXECUTION_RESULTS:
+        if not self._compiled:
+            raise RuntimeError(
+                "You must call the method called `compile()` in first, "
+                "before call the `execute()` method."
+            )
+
         for epoch in range(self.num_epochs):
             self.epoch_idx = epoch
             self.step = "train"
