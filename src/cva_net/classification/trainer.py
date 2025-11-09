@@ -369,7 +369,7 @@ def output_function(
         the first tensor contains the class ids predicted
         and the second tensor contains the softmax confidences.
     """
-    probs = torch.log_softmax(logits, dim=-1)  # [n, num_classes]
+    probs = torch.softmax(logits, dim=-1)  # [n, num_classes]
     class_ids = torch.argmax(probs, dim=-1)  # [n,]
     confidences = torch.max(probs, dim=-1).values  # [n,]
     return class_ids, confidences
@@ -423,7 +423,8 @@ class Trainer:
         self.epoch_idx = 0
         self.batch_idx = 0
         self.num_acc = 0
-        self.result = Result()
+        self.train_result = Result()
+        self.test_result = Result()
         self.step = None
 
         if not self.val_prop:
@@ -616,7 +617,7 @@ class Trainer:
             eval_accuracy_score=self.eval_accuracy_score,
             eval_precision_score=self.eval_precision_score,
             eval_recall_score=self.eval_recall_score,
-            eval_avg_score=self.eval_avg_confidence
+            eval_avg_confidence=self.eval_avg_confidence
         )
         return final_results
 
@@ -631,15 +632,23 @@ class Trainer:
             self.epoch_idx = epoch
             self.step = "train"
             results = self.train(self._train_loader)
-            self.result += results
+            self.train_result += results
             if self._val_loader is None:
                 continue
             self.step = "val"
             results = self.eval(self._val_loader)
-            self.result += results
+            results = {
+                'val_loss': results['eval_loss'],
+                'val_accuracy_score': results['eval_accuracy_score'],
+                'val_precision_score': results['eval_precision_score'],
+                'val_recall_score': results['eval_recall_score'],
+                'val_avg_confidence': results['eval_avg_confidence'],
+            }
+            self.train_result += results
 
         if self._test_loader is None:
-            return self.result.values
+            return self.train_result.values, None
         self.step = 'test'
-        test_results = self.eval(self._test_loader)
-        return self.result.values, test_results
+        results = self.eval(self._test_loader)
+        self.test_result += results
+        return self.train_result.values, self.test_result.values

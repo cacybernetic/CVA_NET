@@ -15,12 +15,12 @@ def test_trainer_class() -> None:
     torch.manual_seed(42)
     model = AlexnetModel.build()
     train_dataset = TensorDataset(
-        torch.randn((1000, 3, 224, 224)),
-        torch.randint(0, 32, (1000,), dtype=torch.int64)
+        torch.randn((100, 3, 224, 224)),
+        torch.randint(0, 32, (100,), dtype=torch.int64)
     )
     test_dataset = TensorDataset(
-        torch.randn((200, 3, 224, 224)),
-        torch.randint(0, 32, (200,), dtype=torch.int64)
+        torch.randn((20, 3, 224, 224)),
+        torch.randint(0, 32, (20,), dtype=torch.int64)
     )
 
     criterion = nn.CrossEntropyLoss()
@@ -31,5 +31,6 @@ def test_trainer_class() -> None:
         optimizer=optimizer, test_dataset=test_dataset, num_epochs=10,
     )
     trainer.compile()
-    results = trainer.execute()
-    LOGGER.debug("results: " + json.dumps(results))
+    results, test_results = trainer.execute()
+    LOGGER.debug("results: \n" + json.dumps(results, indent=4))
+    LOGGER.debug("test_results: \n" + json.dumps(test_results, indent=4))
