@@ -2,10 +2,11 @@ import logging
 import typing as t
 
 from typing_extensions import Self
+import numpy as np
 import torch
 from torch import nn
 from torch import optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 
 LOGGER = logging.getLogger(__name__)
 EXECUTION_RESULTS = t.Tuple[
@@ -14,7 +15,7 @@ EXECUTION_RESULTS = t.Tuple[
 
 
 def _accuracy_score(y_pred: torch.Tensor, y_true: torch.Tensor):
-    """
+    r"""
     Compute accuracy score using only PyTorch tensors.
 
     :param y_pred: torch.Tensor of predicted labels.
@@ -42,11 +43,11 @@ def _accuracy_score(y_pred: torch.Tensor, y_true: torch.Tensor):
 def _precision_score(
     y_true: torch.Tensor,
     y_pred: torch.Tensor,
-    average: str='binary',
+    average: str='weighted',
     pos_label: int=1,
     zero_division: float=0.0
 ) -> torch.Tensor:
-    """
+    r"""
     Compute precision score using only PyTorch tensors.
 
     :param y_true: torch.Tensor or array-like True labels.
@@ -173,11 +174,11 @@ def _precision_score(
 def _recall_score(
     y_true,
     y_pred,
-    average='binary',
+    average='weighted',
     pos_label=1,
     zero_division=0.0
 ) -> torch.Tensor:
-    """
+    r"""
     Compute recall score using only PyTorch tensors.
 
     :param y_true: torch.Tensor or array-like True labels.
@@ -187,7 +188,8 @@ def _recall_score(
       - 'binary': Only report results for the class specified by pos_label.
       - 'micro': Calculate metrics globally by counting total TP and FN.
       - 'macro': Calculate metrics for each label, return unweighted mean.
-      - 'weighted': Calculate metrics for each label, return weighted mean by support.
+      - 'weighted': Calculate metrics for each label, return weighted mean
+        by support.
       - 'none': Return recall for each class.
     :param pos_label: int, default=1.
       The label of the positive class (for binary classification).
@@ -294,7 +296,8 @@ def _recall_score(
 
     else:
         raise ValueError(
-            "Average should be one of ['binary', 'micro', 'macro', 'weighted', 'none']"
+            "Average should be one of ['binary', 'micro', 'macro', "
+            "'weighted', 'none']"
         )
 
 
@@ -336,22 +339,38 @@ class Result:
         return value
 
 
+def get_validation_dataset(dataset_instance: Dataset, p: float) -> Dataset:
+    ds_dataset_len = len(dataset_instance)
+    val_dataset_len = int(p * ds_dataset_len)
+    indices = torch.randint(0, ds_dataset_len, (val_dataset_len,))
+    features = []
+    targets = []
+    for index in indices:
+        feature, target = dataset_instance[index]
+        features.append(feature)
+        targets.append(target)
+    features = torch.tensor(features, dtype=torch.float32)
+    targets = torch.tensor(targets, dtype=torch.int64)
+    val_dataset = TensorDataset(features, targets)
+    return val_dataset
+
+
 def output_function(
     logits: torch.Tensor
 ) -> t.Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Post-processing method
-        ----------------------
+    r"""
+    Post-processing method
+    ----------------------
 
-        :param logits: [batch_size, num_classes];
-        :returns: tuple of two tensors of size [batch_size,],
-          the first tensor contains the class ids predicted
-          and the second tensor contains the softmax confidences.
-        """
-        probs = torch.log_softmax(logits, dim=-1)  # [n, num_classes]
-        class_ids = torch.argmax(probs, dim=-1)  # [n,]
-        confidences = torch.max(probs, dim=-1).values  # [n,]
-        return class_ids, confidences
+    :param logits: [batch_size, num_classes];
+    :returns: tuple of two tensors of size [batch_size,],
+        the first tensor contains the class ids predicted
+        and the second tensor contains the softmax confidences.
+    """
+    probs = torch.log_softmax(logits, dim=-1)  # [n, num_classes]
+    class_ids = torch.argmax(probs, dim=-1)  # [n,]
+    confidences = torch.max(probs, dim=-1).values  # [n,]
+    return class_ids, confidences
 
 
 class Trainer:
@@ -377,6 +396,7 @@ class Trainer:
         num_workers: int=4,
         drop_last: bool=False,
         pin_memory: bool=False,
+        val_prop: float=None,
         gradient_acc: int=256,
         device: t.Union[str, torch.device]=None,
     ) -> None:
@@ -397,11 +417,15 @@ class Trainer:
         self.num_workers = num_workers
         self.drop_last = drop_last
         self.pin_memory = pin_memory
+        self.val_prop = val_prop
         self.epoch_idx = 0
         self.batch_idx = 0
         self.num_acc = 0
         self.result = Result()
         self.step = None
+
+        if not self.val_prop:
+            self.val_prop = 0.2
 
         self.train_loss = None
         self.train_accuracy_score = None
@@ -431,7 +455,16 @@ class Trainer:
             shuffle=True, num_workers=self.num_workers,
             pin_memory=self.pin_memory, drop_last=self.drop_last,
         )
-        if self._val_dataset is not None:
+        if self._val_dataset is None:
+            if self._test_dataset is not None:
+                self._val_dataset = \
+                    get_validation_dataset(self._test_dataset, self.val_prop)
+                self._val_loader = DataLoader(
+                    dataset=self._val_dataset, batch_size=self.batch_size,
+                    shuffle=False, num_workers=self.num_workers,
+                    pin_memory=self.pin_memory,
+                )
+        else:
             self._val_loader = DataLoader(
                 dataset=self._val_dataset, batch_size=self.batch_size,
                 shuffle=False, num_workers=self.num_workers,
