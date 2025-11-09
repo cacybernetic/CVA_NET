@@ -43,7 +43,9 @@ def _accuracy_score(y_pred: torch.Tensor, y_true: torch.Tensor):
 def _precision_score(
     y_pred: torch.Tensor,
     y_true: torch.Tensor,
-    average: str='weighted',
+        average: t.Literal[
+        'binary', 'micro', 'macro', 'weighted', 'none'
+    ]='weighted',
     pos_label: int=1,
     zero_division: float=0.0
 ) -> torch.Tensor:
@@ -172,11 +174,13 @@ def _precision_score(
 
 
 def _recall_score(
-    y_pred,
-    y_true,
-    average='weighted',
-    pos_label=1,
-    zero_division=0.0
+    y_pred: torch.Tensor,
+    y_true: torch.Tensor,
+    average: t.Literal[
+        'binary', 'micro', 'macro', 'weighted', 'none'
+    ]='weighted',
+    pos_label: int=1,
+    zero_division: float=0.0
 ) -> torch.Tensor:
     r"""
     Compute recall score using only PyTorch tensors.
