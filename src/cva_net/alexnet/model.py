@@ -38,7 +38,7 @@ class AlexNet(nn.Module):
             nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=3, stride=2),
-        
+
             nn.Conv2d(256, 384, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(384),
             nn.ReLU(),
@@ -107,13 +107,13 @@ def initialize_weights(m: AlexNet) -> None:
         torch.nn.init.xavier_uniform_(m.weight)
         if m.bias is not None:
             nn.init.constant_(m.bias, 0)
-        print("CONV2D weights:\n" + str(m.weight[0]))
-        print("CONV2D bias:\n" + str(m.bias[0]))
+        LOGGER.debug("CONV2D weights:\n" + str(m.weight[0]))
+        LOGGER.debug("CONV2D bias:\n" + str(m.bias[0]))
     elif isinstance(m, nn.Linear):
         nn.init.normal_(m.weight, mean=0, std=0.01)
         nn.init.constant_(m.bias, 0)
-        print("LINEAR weights:\n" + str(m.weight[0]))
-        print("LINEAR bias:\n" + str(m.bias[0]))
+        LOGGER.debug("LINEAR weights:\n" + str(m.weight[0]))
+        LOGGER.debug("LINEAR bias:\n" + str(m.bias[0]))
 
 
 ###############################################################################
