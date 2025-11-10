@@ -839,7 +839,7 @@ def fit(
 
     async def monitoring():
         """Monitor training progress until completion."""
-        
+
         # Log initial information
         LOGGER.info(f"Number of train batches: {trainer.num_train_batchs}")
         LOGGER.info(f"Number of val batches: {trainer.num_val_batchs}")
