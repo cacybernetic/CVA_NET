@@ -869,6 +869,7 @@ def fit(
                             )
                             s_mem = current_step
                         pbar.close()
+                        await asyncio.sleep(1)
 
                     # Reset tracking variables.
                     current_progress = 0
@@ -963,7 +964,7 @@ def test_fit_function() -> None:
     from cva_net.alexnet import ModelFactory as AlexnetModel
 
     torch.manual_seed(42)
-    model = AlexnetModel.build()
+    model, _ = AlexnetModel.build()
     train_dataset = TensorDataset(
         torch.randn((1000, 3, 224, 224)),
         torch.randint(0, 32, (1000,), dtype=torch.int64)
