@@ -346,11 +346,12 @@ class Result:
 def get_validation_dataset(dataset_instance: Dataset, p: float) -> Dataset:
     ds_dataset_len = len(dataset_instance)
     val_dataset_len = int(p * ds_dataset_len)
-    indices = torch.randint(0, (ds_dataset_len - 1), (val_dataset_len,))
+    indices = torch.randint(0, val_dataset_len, (val_dataset_len,))
+    # indices = torch.arange(0, val_dataset_len, 1)
     features = []
     targets = []
     for index in indices:
-        feature, target = dataset_instance[index]
+        feature, target = dataset_instance[index.item()]
         features.append(feature)
         targets.append(target)
     features = np.array(features, dtype=np.float32)

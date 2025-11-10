@@ -152,8 +152,8 @@ def train() -> None:
     ## Create datasets:
     train_dataset = Dataset(train_dataset_source)
     test_dataset = Dataset(test_dataset_source)
-    num_val_samples = int(args.val_prop * len(test_dataset_source))
-    val_dataset = Dataset(test_dataset_source, end_index=num_val_samples)
+    # num_val_samples = int(args.val_prop * len(test_dataset_source))
+    # val_dataset = Dataset(test_dataset_source, end_index=num_val_samples)
 
     model = None
     model_config = None
@@ -195,7 +195,7 @@ def train() -> None:
     LOGGER.info("Optimizer instance: " + str(optimizer))
 
     ret = fit(
-        train_dataset, model, test_dataset, val_dataset=val_dataset,
+        train_dataset, model, test_dataset, val_dataset=None,
         num_epochs=args.epochs, 
         batch_size=args.batch_size, gradient_acc=args.grad_acc,
         val_prop=args.val_prop, pin_memory=args.pin_memory,
@@ -207,6 +207,7 @@ def train() -> None:
 
     model_repository.save(model, model_config)
     optimizer_repository.save(optimizer, optimizer_config)
+    ds_reader.close()
 
 
 if __name__ == '__main__':
