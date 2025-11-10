@@ -838,20 +838,20 @@ def fit(
     #         await asyncio.sleep(0.001)
 
     async def monitoring():
-        """Monitor training progress until completion with tqdm."""
+        """Monitor training progress until completion."""
         
         # Log initial information
         LOGGER.info(f"Number of train batches: {trainer.num_train_batchs}")
         LOGGER.info(f"Number of val batches: {trainer.num_val_batchs}")
         LOGGER.info(f"Number of test batches: {trainer.num_test_batchs}")
-        
+
         pbar = None
         current_step = ''
         current_progress = 0
         epoch_width = len(str(trainer.num_epochs))
         metrics = {}
         s_mem = ''
-        
+
         try:
             while not training_complete.is_set():
                 # Check if we need to create a new progress bar
@@ -860,7 +860,8 @@ def fit(
                 if trainer.step != current_step or current_progress >= num_batchs:
                     # Close previous progress bar if it exists.
                     if pbar is not None:
-                        if s_mem != current_step:
+                        curr_progress =  getattr(trainer, 'batch_idx', 0) + 1
+                        if s_mem != current_step and curr_progress >= num_batchs:
                             pbar.write(
                                 f"Epoch {trainer.epoch_idx + 1:>{epoch_width}}/{trainer.num_epochs} - [{current_step:5s}] "
                                 "- " + " - ".join([name + ": " + val for name, val in metrics.items()])
@@ -878,8 +879,8 @@ def fit(
                         total=num_batchs,
                         desc=f"Epoch {trainer.epoch_idx + 1:>{epoch_width}}/{trainer.num_epochs} - [{current_step:5s}]",
                         unit="batch",
-                        ncols=120,  # Fixed width for consistent display;
-                        bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {postfix}]',
+                        # ncols=120,  # Fixed width for consistent display;
+                        bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining} {postfix}]',
                         leave=False  # Don't leave progress bar after completion;
                     )
 
@@ -898,11 +899,11 @@ def fit(
 
                         if hasattr(trainer, 'precision_score') and hasattr(trainer.precision_score, 'detach'):
                             prec_val = trainer.precision_score.detach().cpu().item()
-                            metrics['prec'] = f"{prec_val:4.2f}"
+                            metrics['precision'] = f"{prec_val:4.2f}"
                         
                         if hasattr(trainer, 'recall_score') and hasattr(trainer.recall_score, 'detach'):
                             rec_val = trainer.recall_score.detach().cpu().item()
-                            metrics['rec'] = f"{rec_val:4.2f}"
+                            metrics['recall'] = f"{rec_val:4.2f}"
                         
                         if hasattr(trainer, 'avg_confidence') and hasattr(trainer.avg_confidence, 'detach'):
                             conf_val = trainer.avg_confidence.detach().cpu().item()
@@ -963,12 +964,12 @@ def test_fit_function() -> None:
     torch.manual_seed(42)
     model = AlexnetModel.build()
     train_dataset = TensorDataset(
-        torch.randn((2000, 3, 224, 224)),
-        torch.randint(0, 32, (2000,), dtype=torch.int64)
-    )
-    test_dataset = TensorDataset(
         torch.randn((1000, 3, 224, 224)),
         torch.randint(0, 32, (1000,), dtype=torch.int64)
+    )
+    test_dataset = TensorDataset(
+        torch.randn((700, 3, 224, 224)),
+        torch.randint(0, 32, (700,), dtype=torch.int64)
     )
     ret = fit(
         train_dataset, model, test_dataset, num_epochs=2, gradient_acc=8,
