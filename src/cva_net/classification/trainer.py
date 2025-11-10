@@ -656,3 +656,129 @@ class Trainer:
         results = self.eval(self._test_loader)
         self.test_result += results
         return self.train_result.values, self.test_result.values
+
+
+def fit(
+    train_dataset: Dataset,
+    model: nn.Module,
+    test_dataset: Dataset=None,
+    val_dataset: Dataset=None,
+    criterion: nn.Module=None,
+    optimizer: optim.Optimizer=None,
+    post_processing_func: t.Callable[
+        [torch.Tensor],
+        t.Tuple[
+            torch.Tensor,
+            torch.Tensor
+        ]
+    ]=output_function,
+    num_epochs: int=3,
+    batch_size: int=16,
+    num_workers: int=4,
+    drop_last: bool=False,
+    pin_memory: bool=False,
+    val_prop: float=None,
+    gradient_acc: int=256,
+    device: t.Union[str, torch.device]=None,
+) -> EXECUTION_RESULTS:
+    """
+    Fit a model with concurrent training and monitoring using asyncio.
+    """
+    
+    if criterion is None:
+        criterion = nn.CrossEntropyLoss()
+    if optimizer is None:
+        optimizer = optim.AdamW(model.parameters(), lr=1e-4)
+
+    trainer = Trainer(
+        train_dataset=train_dataset, val_dataset=val_dataset, model=model,
+        criterion=criterion, optimizer=optimizer, test_dataset=test_dataset,
+        num_epochs=num_epochs, gradient_acc=gradient_acc,
+        batch_size=batch_size, num_workers=num_workers, drop_last=drop_last,
+        pin_memory=pin_memory, val_prop=val_prop, device=device,
+        post_processing_func=post_processing_func,
+    )
+    trainer.compile()
+    
+    import asyncio
+    import json
+
+    # Shared state for monitoring
+    training_complete = asyncio.Event()
+    train_results = None
+    test_results = None
+
+
+    async def train():
+        """
+        Execute training in a separate thread to avoid blocking
+        the event loop.
+        """
+        nonlocal train_results, test_results
+        
+        loop = asyncio.get_running_loop()
+        # Run the blocking trainer.execute() in the default thread pool executor
+        train_results, test_results = await loop.run_in_executor(
+            None, 
+            trainer.execute
+        )
+        
+        # Signal that training is complete
+        training_complete.set()
+        
+        print("\ntrain_results: \n" + json.dumps(train_results, indent=4))
+        print("test_results: \n" + json.dumps(test_results, indent=4))
+        
+        return train_results, test_results
+
+    async def monitoring():
+        """Monitor training progress until completion"""
+        while not training_complete.is_set():
+            # Check if trainer has started and has valid epoch information
+            if hasattr(trainer, 'epoch_idx') and hasattr(trainer, 'num_epochs'):
+                epochs = trainer.epoch_idx + 1
+                remaining = trainer.num_epochs - epochs
+                step_info = f"{trainer.step}: " if hasattr(trainer, 'step') else ""
+
+                print(
+                    f"\r{step_info}[" + ("=" * epochs) + ("." * remaining) + "]",
+                    end='', flush=True
+                )
+
+            # Check more frequently for responsiveness, but not too frequently
+            await asyncio.sleep(0.1)
+        
+        # Print final progress bar
+        if hasattr(trainer, 'num_epochs'):
+            print(f"\r[" + ("=" * trainer.num_epochs) + "] Complete!", flush=True)
+
+    async def run_async_process():
+        """Run both tasks concurrently and handle results"""
+        # Create tasks
+        train_task = asyncio.create_task(train())
+        monitor_task = asyncio.create_task(monitoring())
+        
+        # Wait for both to complete
+        results = await train_task
+        await monitor_task  # Ensure monitoring finishes cleanly
+        return results
+
+    # Run the async process and return results
+    train_results, test_results = asyncio.run(run_async_process())
+    return train_results, test_results
+
+
+def test_fit_function() -> None:
+    from cva_net.alexnet import ModelFactory as AlexnetModel
+
+    torch.manual_seed(42)
+    model = AlexnetModel.build()
+    train_dataset = TensorDataset(
+        torch.randn((100, 3, 224, 224)),
+        torch.randint(0, 32, (100,), dtype=torch.int64)
+    )
+    test_dataset = TensorDataset(
+        torch.randn((20, 3, 224, 224)),
+        torch.randint(0, 32, (20,), dtype=torch.int64)
+    )
+    fit(train_dataset, model, test_dataset)

@@ -6,7 +6,7 @@ from torch import optim
 from torch.utils.data import TensorDataset
 
 from cva_net.alexnet import ModelFactory as AlexnetModel
-from cva_net.classification.trainer import Trainer
+from cva_net.classification.trainer import Trainer, fit
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,3 +35,17 @@ def test_trainer_class() -> None:
     results, test_results = trainer.execute()
     LOGGER.debug("results: \n" + json.dumps(results, indent=4))
     LOGGER.debug("test_results: \n" + json.dumps(test_results, indent=4))
+
+
+def test_fit_function() -> None:
+    torch.manual_seed(42)
+    model = AlexnetModel.build()
+    train_dataset = TensorDataset(
+        torch.randn((100, 3, 224, 224)),
+        torch.randint(0, 32, (100,), dtype=torch.int64)
+    )
+    test_dataset = TensorDataset(
+        torch.randn((20, 3, 224, 224)),
+        torch.randint(0, 32, (20,), dtype=torch.int64)
+    )
+    fit(train_dataset, model, test_dataset)
