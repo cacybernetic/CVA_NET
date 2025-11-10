@@ -231,7 +231,7 @@ class OptimizerFactory:
         model: nn.Module,
         config: OptimizerConfig=None,
         **kwargs: t.Dict[str, t.Any]
-    ) -> optim.Optimizer:
+    ) -> t.Tuple[optim.Optimizer, OptimizerConfig]:
         if config is None:
             config = OptimizerConfig()
         config.__dict__.update(kwargs)
@@ -242,7 +242,7 @@ class OptimizerFactory:
             )
         optim_factory_fn = IMPLEMENTED_OPTIMIZERS[config.optimizer]
         instance = optim_factory_fn(model, config)
-        return instance
+        return instance, config
 
     @staticmethod
     def load(
@@ -372,7 +372,7 @@ def _build_optimizer(args) -> None:
     config.weight_decay = args.weight_decay
     config.eps = args.eps
     config.betas = tuple(args.betas)
-    optimizer = OptimizerFactory.build(model, config=config)
+    optimizer, _ = OptimizerFactory.build(model, config=config)
     repos_folder = output_dir / 'saved_optimizer'
     repository = OptimizerRepository(repos_folder)
     repository.save(opt=optimizer, config=config)

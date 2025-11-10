@@ -283,11 +283,12 @@ class ModelRepository:
 ###############################################################################
 
 class ModelFactory:
+    
     @staticmethod
     def build(
         config: ModelConfig = None, 
         **kwargs: t.Dict[str, t.Any]
-    ) -> AlexNet:
+    ) -> t.Tuple[AlexNet, ModelConfig]:
         if config is None:
             config = ModelConfig()
         config.__dict__.update(kwargs)
@@ -296,7 +297,7 @@ class ModelFactory:
             num_classes=config.num_classes
         )
         model.apply(initialize_weights)
-        return model
+        return model, config
 
     @staticmethod
     def load(repository: ModelRepository) -> t.Tuple[AlexNet, ModelConfig]:
@@ -346,7 +347,7 @@ def main() -> None:
         model_config.num_classes = len(args.class_names) if args.class_names \
             else 1000
         model_config.dropout = args.dropout
-        model = ModelFactory.build(model_config)
+        model, _ = ModelFactory.build(model_config)
         model_repository = ModelRepository(args.model)
         model_repository.save(model, model_config)
 
