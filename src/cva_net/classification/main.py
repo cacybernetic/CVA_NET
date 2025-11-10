@@ -1,5 +1,7 @@
+import sys
 import logging
 import argparse
+from pathlib import Path
 
 from .dataset import Dataset, HDF5DatasetReader, HDF5Reader
 from .optimizer import OptimizerConfig, OptimizerRepository, OptimizerFactory
@@ -20,6 +22,9 @@ DEFAULT_NUM_WORKERS = 4
 DEFAULT_EPOCHS = 10
 DEFAULT_BATCH_SIZE = 16
 DEFAULT_GRAD_ACC = 128
+
+DEFAULT_MODEL_FOLDER = 'saved_model'
+DEFAULT_OPTIMIZER_FOLDER = 'saved_optimizer'
 
 
 def get_arguments() -> argparse.Namespace:
@@ -58,12 +63,53 @@ def get_arguments() -> argparse.Namespace:
     parser.add_argument('-o', '--output-dir', type=str, default='outputs')
 
     args = parser.parse_args()
+    LOGGER.info("Training arguments:")
+    for arg, value in vars(args).items():
+        LOGGER.info(f"\t{arg}: {value}")
     return args
 
 
-def main() -> None:
-    ...
+def train() -> None:
+    args = get_arguments()
+    output = Path(args.output)
+    model_folder = str(output / DEFAULT_MODEL_FOLDER)
+    optimizer_folder = str(output / DEFAULT_OPTIMIZER_FOLDER)
 
+    model_repository = None
+    optimizer_repository = None
+
+    if args.dataset is None:
+        LOGGER.error("The path to the dataset file is not provided.")
+        sys.exit(1)
+    ds_reader = HDF5DatasetReader(args.dataset)
+    ds_reader.open()
+    train_dataset_source = ds_reader.get_dataset("train")
+    test_dataset_source = ds_reader.get_dataset("test")
+    ## Create datasets:
+    train_dataset = Dataset(train_dataset_source)
+    test_dataset = Dataset(test_dataset_source)
+
+    model = None
+    if args.model is None:
+        from cva_net.alexnet import ModelFactory, ModelRepository
+
+        LOGGER.warning("No model provided, we build one by default.")
+        LOGGER.info("The model will be used is 'AlexNet'.")
+        model = ModelFactory.build()
+        model_repository = ModelRepository(model_folder)
+    else:
+        ...
+
+    optimizer = None
+    if args.optimizer is None:
+        LOGGER.warning(
+            "No optimizer provided, we build a new optimizer by default."
+        )
+        optimizer = OptimizerFactory.build()
+        optimizer_repository = OptimizerRepository(optimizer_folder)
+    else:
+        ...
+        
 
 if __name__ == '__main__':
-    main()
+    train()
