@@ -552,6 +552,7 @@ class Trainer:
         self.batch_idx = 0
         self.num_acc = 0
         self.train_result = Result()
+        self.val_result = Result()
         self.test_result = Result()
         self.step = ''
         self.verbose = verbose
@@ -584,6 +585,7 @@ class Trainer:
         self._compiled = False
         self._completed = False
         self._epoch_str_width = len(str(self.num_epochs))
+        self._pbar = None
     
     def completed(self) -> bool:
         return self._completed
@@ -712,7 +714,7 @@ class Trainer:
         unit = ''
         total = None
         if self.step in ('train', 'test', 'val'):
-            desc = f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}]",
+            desc = f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}]"
             unit = ' batch(s)'
         if self.step == 'train':
             total = self.num_train_batchs
@@ -731,6 +733,11 @@ class Trainer:
         )
         return iterator
 
+    def _result_json_format(self, **metric: t.Dict[str, torch.Tensor]) -> None:
+        return {
+            name: "%6.3f" % (value.detach().cpu().item(),)
+            for name, value in metric.items()
+        }
 
     def train(self, data_loader) -> t.Dict[str, torch.Tensor]:
         total_loss = torch.tensor(0.0, device=self._device)
@@ -741,11 +748,7 @@ class Trainer:
         metrics = {}
 
         self._model.train()
-        iterator = data_loader
-        if self.verbose:
-            iterator = self._get_step_progress_iterator()
-
-        for batch_idx, (features, targets) in enumerate(iterator):
+        for batch_idx, (features, targets) in enumerate(data_loader):
             self.batch_idx = batch_idx
             features = features.to(self._device)
             targets = targets.to(self._device)
@@ -769,16 +772,20 @@ class Trainer:
             # self.precision_score = self.train_precision_score
             # self.recall_score = self.train_recall_score
             # self.avg_confidence = self.train_avg_confidence
+            if self.verbose:
+                self._pbar.update(1)
 
             metrics = dict(
-                train_loss=self.train_loss,
-                train_accuracy_score=self.train_accuracy_score,
-                train_precision_score=self.train_precision_score,
-                train_recall_score=self.train_recall_score,
-                train_avg_confidence=self.train_avg_confidence,
+                loss=self.train_loss,
+                accuracy_score=self.train_accuracy_score,
+                precision_score=self.train_precision_score,
+                recall_score=self.train_recall_score,
+                avg_confidence=self.train_avg_confidence,
             )
             if self.verbose:
-                iterator.set_postfix(metrics, refresh=False)
+                self._pbar.set_postfix(
+                    self._result_json_format(**metrics), refresh=False
+                )
 
         return metrics
 
@@ -790,12 +797,8 @@ class Trainer:
         total_confs = torch.tensor(0.0, device=self._device)
 
         self._model.eval()
-        iterator = data_loader
-        if self.verbose:
-            iterator = self._get_step_progress_iterator()
-
         with torch.no_grad():
-            for batch_idx, (features, targets) in enumerate(iterator):
+            for batch_idx, (features, targets) in enumerate(data_loader):
                 self.batch_idx = batch_idx
                 features = features.to(self._device)
                 targets = targets.to(self._device)
@@ -819,15 +822,22 @@ class Trainer:
                 # self.precision_score = self.eval_precision_score
                 # self.recall_score = self.eval_recall_score
                 # self.avg_confidence = self.eval_avg_confidence
+                if self.verbose:
+                    self._pbar.update(1)
 
-        final_results = dict(
-            eval_loss=self.eval_loss,
-            eval_accuracy_score=self.eval_accuracy_score,
-            eval_precision_score=self.eval_precision_score,
-            eval_recall_score=self.eval_recall_score,
-            eval_avg_confidence=self.eval_avg_confidence
-        )
-        return final_results
+                metrics = dict(
+                    loss=self.eval_loss,
+                    accuracy_score=self.eval_accuracy_score,
+                    precision_score=self.eval_precision_score,
+                    recall_score=self.eval_recall_score,
+                    avg_confidence=self.eval_avg_confidence,
+                )
+                if self.verbose:
+                    self._pbar.set_postfix(
+                        self._result_json_format(**metrics), refresh=False
+                    )
+
+        return metrics
 
     def execute(self) -> EXECUTION_RESULTS:
         if not self._compiled:
@@ -840,64 +850,69 @@ class Trainer:
             self.epoch_idx = epoch
             
             self.step = "train"
-            if self.verbose:
-                self.pbar = self._get_step_progress_iterator()
             self.num_batchs = self.num_train_batchs
+            if self.verbose:
+                self._pbar = self._get_step_progress_iterator()
 
             results = self.train(self._train_loader)
             self.train_result += results
-            
+
             # update iterator:
             if self.verbose:
-                self.pbar.write(
+                results = self._result_json_format(**results)
+                self._pbar.write(
                     f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}] "
                     "- " + " - ".join([name + ": " + val for name, val in results.items()])
                 )
-                self.pbar.close()
+                self._pbar.close()
 
             if self._val_loader is None:
                 continue
             self.step = "val"
             self.num_batchs = self.num_val_batchs
             if self.verbose:
-                self.pbar = self._get_step_progress_iterator()
-            
-            results = self.eval(self._val_loader)
-            results = {
-                'val_loss': results['eval_loss'],
-                'val_accuracy_score': results['eval_accuracy_score'],
-                'val_precision_score': results['eval_precision_score'],
-                'val_recall_score': results['eval_recall_score'],
-                'val_avg_confidence': results['eval_avg_confidence'],
-            }
-            self.train_result += results
+                self._pbar = self._get_step_progress_iterator()
 
-            # update iterator:
+            results = self.eval(self._val_loader)
+            self.val_result += results
+
+            # update progress bar:
             if self.verbose:
-                self.pbar.write(
+                results = self._result_json_format(**results)
+                self._pbar.write(
                     f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}] "
                     "- " + " - ".join([name + ": " + val for name, val in results.items()])
                 )
-                self.pbar.close()
+                self._pbar.close()
 
         if self._test_loader is None:
-            return self.train_result.values, None
+            return (
+                self.train_result.values,
+                self.val_result.values,
+                self.test_result.values
+            )
         self.step = 'test'
         self.num_batchs = self.num_test_batchs
         if self.verbose:
-            self.pbar = self._get_step_progress_iterator()
+            self._pbar = self._get_step_progress_iterator()
 
         results = self.eval(self._test_loader)
         self.test_result += results
-        
-        # update iterator:
+
+        # update progress bar:
         if self.verbose:
-            self.pbar.write(
-                f"[{self.step:5s}] "
-                "- " + " - ".join([name + ": " + val for name, val in results.items()])
+            results = self._result_json_format(**results)
+            self._pbar.write(
+                f"[{self.step:5s}] " \
+                + " - ".join([name + ": " + val for name, val in results.items()])
             )
-            self.pbar.close()
-        return self.train_result.values, self.test_result.values
+            self._pbar.close()
+
+        return (
+            self.train_result.values,
+            self.val_result.values,
+            self.test_result.values
+        )
 
 
 def fit(
@@ -941,8 +956,8 @@ def fit(
         post_processing_func=post_processing_func, verbose=True,
     )
     trainer.compile()
-    train_results, test_results = trainer.execute()
-    return train_results, test_results
+    results = trainer.execute()
+    return results
 
 
 def test_fit_function() -> None:
@@ -963,6 +978,7 @@ def test_fit_function() -> None:
         train_dataset, model, test_dataset, num_epochs=2, gradient_acc=8,
         val_prop=0.4
     )
-    train_results, test_results = ret
+    train_results, val_results, test_results = ret
     print("\ntrain_results: \n" + json.dumps(train_results, indent=4))
+    print("\nval_results: \n" + json.dumps(val_results, indent=4))
     print("test_results: \n" + json.dumps(test_results, indent=4))

@@ -203,8 +203,9 @@ def train() -> None:
         val_prop=args.val_prop, pin_memory=args.pin_memory,
         num_workers=args.num_workers, device=args.device,
     )
-    train_results, test_results = ret
+    train_results, val_results, test_results = ret
     print("\ntrain_results: \n" + json.dumps(train_results, indent=4))
+    print("\nval_results: \n" + json.dumps(val_results, indent=4))
     print("test_results: \n" + json.dumps(test_results, indent=4))
 
     model_repository.save(model, model_config)
