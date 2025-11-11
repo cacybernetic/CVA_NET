@@ -1067,7 +1067,7 @@ def fit(
 
                 # Yield control to event loop.
                 # 0.05s is a good balance between responsiveness and CPU usage.
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.01)
         
         finally:
             # Ensure progress bar is closed when monitoring ends.
