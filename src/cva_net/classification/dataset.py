@@ -15,15 +15,6 @@ import torchvision.transforms.functional as TF
 from torchvision import transforms
 from torchvision.transforms import Compose
 
-# Set up logging:
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s \t %(message)s',
-    handlers=[
-        logging.FileHandler("classification_dataset.log"),
-        logging.StreamHandler()
-    ]
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -744,6 +735,16 @@ def _get_arguments():
 
 def main() -> None:
     import sys
+
+    # Set up logging:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(levelname)s \t %(message)s',
+        handlers=[
+            logging.FileHandler("classification_dataset.log"),
+            logging.StreamHandler()
+        ]
+    )
 
     args = _get_arguments()
 

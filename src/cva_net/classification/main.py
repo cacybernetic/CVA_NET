@@ -140,7 +140,7 @@ def train() -> None:
     ds_reader.open()
     train_dataset_source = ds_reader.get_dataset("train")
     test_dataset_source = ds_reader.get_dataset("test")
-    class_names = train_dataset_source.get_attr('class_names')
+    class_names = list(train_dataset_source.get_attr('class_names'))
     LOGGER.info("=" * 80)
     LOGGER.info("TRAIN DATASET:")
     LOGGER.info("=" * 80)

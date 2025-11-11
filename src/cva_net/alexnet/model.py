@@ -5,15 +5,6 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-# Set up logging:
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("alexnet_model.log"),
-        logging.StreamHandler()
-    ]
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -303,7 +294,7 @@ class ModelFactory:
     def load(repository: ModelRepository) -> t.Tuple[AlexNet, ModelConfig]:
         model_config = ModelConfig()
         model_config = repository.load_model_config(model_config)
-        model = ModelFactory.build(model_config)
+        model, _ = ModelFactory.build(model_config)
         loaded_model = repository.load_model(model)
         return loaded_model, model_config
 
@@ -337,6 +328,16 @@ def _get_argument():
 
 def main() -> None:
     import sys
+
+    # Set up logging:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(levelname)s \t %(message)s',
+        handlers=[
+            logging.FileHandler("alexnet_model.log"),
+            logging.StreamHandler()
+        ]
+    )
     args = _get_argument()
 
     if args.action == 'build':

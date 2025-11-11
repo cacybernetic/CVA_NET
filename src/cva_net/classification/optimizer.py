@@ -7,15 +7,6 @@ import torch
 from torch import nn
 from torch import optim
 
-# Set up logging:
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s \t %(message)s',
-    handlers=[
-        logging.FileHandler("classification_optimizer.log"),
-        logging.StreamHandler()
-    ]
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -251,7 +242,7 @@ class OptimizerFactory:
     ) -> t.Tuple[optim.Optimizer, OptimizerConfig]:
         optimizer_config = OptimizerConfig()
         optimizer_config = repository.load_optimizer_config(optimizer_config)
-        optimizer = OptimizerFactory.build(model, optimizer_config)
+        optimizer, _ = OptimizerFactory.build(model, optimizer_config)
         loaded_optimizer = repository.load_optimizer(optimizer)
         return loaded_optimizer, optimizer_config
 
@@ -395,6 +386,16 @@ def _load_optimizer(args) -> None:
 def main() -> None:
     import os
     import sys
+
+    # Set up logging:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(levelname)s \t %(message)s',
+        handlers=[
+            logging.FileHandler("classification_optimizer.log"),
+            logging.StreamHandler()
+        ]
+    )
 
     args = _get_arguments()
     if not os.path.isdir(args.optimizer):

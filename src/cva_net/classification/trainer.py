@@ -869,7 +869,7 @@ def fit(
                             )
                             s_mem = current_step
                         pbar.close()
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(2)
 
                     # Reset tracking variables.
                     current_progress = 0
