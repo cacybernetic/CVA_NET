@@ -9,21 +9,12 @@ from tqdm import tqdm
 
 import torch
 from torch.utils.data import Dataset as BaseDataset
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader as PytorchDataLoader
 
 import torchvision.transforms.functional as TF
 from torchvision import transforms
 from torchvision.transforms import Compose
 
-# Set up logging:
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s \t %(message)s',
-    handlers=[
-        logging.FileHandler("classification_dataset.log"),
-        logging.StreamHandler()
-    ]
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -694,15 +685,15 @@ def get_dataloader(
     val_dataset = Dataset(test_dataset_source, end_index=num_val_samples)
 
     ## Create data loaders.
-    train_loader = DataLoader(
+    train_loader = PytorchDataLoader(
         dataset=train_dataset, batch_size=batch_size, shuffle=True,
         num_workers=num_workers, pin_memory=pin_memory, drop_last=drop_last,
     )
-    val_loader = DataLoader(
+    val_loader = PytorchDataLoader(
         dataset=val_dataset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=pin_memory,
     )
-    test_loader = DataLoader(
+    test_loader = PytorchDataLoader(
         dataset=test_dataset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=pin_memory,
     )
@@ -744,6 +735,16 @@ def _get_arguments():
 
 def main() -> None:
     import sys
+
+    # Set up logging:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(levelname)s \t %(message)s',
+        handlers=[
+            logging.FileHandler("classification_dataset.log"),
+            logging.StreamHandler()
+        ]
+    )
 
     args = _get_arguments()
 

@@ -7,15 +7,6 @@ import torch
 from torch import nn
 from torch import optim
 
-# Set up logging:
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s \t %(message)s',
-    handlers=[
-        logging.FileHandler("classification_optimizer.log"),
-        logging.StreamHandler()
-    ]
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -231,7 +222,7 @@ class OptimizerFactory:
         model: nn.Module,
         config: OptimizerConfig=None,
         **kwargs: t.Dict[str, t.Any]
-    ) -> optim.Optimizer:
+    ) -> t.Tuple[optim.Optimizer, OptimizerConfig]:
         if config is None:
             config = OptimizerConfig()
         config.__dict__.update(kwargs)
@@ -242,7 +233,7 @@ class OptimizerFactory:
             )
         optim_factory_fn = IMPLEMENTED_OPTIMIZERS[config.optimizer]
         instance = optim_factory_fn(model, config)
-        return instance
+        return instance, config
 
     @staticmethod
     def load(
@@ -251,7 +242,7 @@ class OptimizerFactory:
     ) -> t.Tuple[optim.Optimizer, OptimizerConfig]:
         optimizer_config = OptimizerConfig()
         optimizer_config = repository.load_optimizer_config(optimizer_config)
-        optimizer = OptimizerFactory.build(model, optimizer_config)
+        optimizer, _ = OptimizerFactory.build(model, optimizer_config)
         loaded_optimizer = repository.load_optimizer(optimizer)
         return loaded_optimizer, optimizer_config
 
@@ -372,7 +363,7 @@ def _build_optimizer(args) -> None:
     config.weight_decay = args.weight_decay
     config.eps = args.eps
     config.betas = tuple(args.betas)
-    optimizer = OptimizerFactory.build(model, config=config)
+    optimizer, _ = OptimizerFactory.build(model, config=config)
     repos_folder = output_dir / 'saved_optimizer'
     repository = OptimizerRepository(repos_folder)
     repository.save(opt=optimizer, config=config)
@@ -395,6 +386,16 @@ def _load_optimizer(args) -> None:
 def main() -> None:
     import os
     import sys
+
+    # Set up logging:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(levelname)s \t %(message)s',
+        handlers=[
+            logging.FileHandler("classification_optimizer.log"),
+            logging.StreamHandler()
+        ]
+    )
 
     args = _get_arguments()
     if not os.path.isdir(args.optimizer):

@@ -44,8 +44,10 @@ AlexNet model parameters:
 
 """
 
-from .model import AlexNet, ModelConfig, ModelFactory, ModelRepository
+from .model import AlexNet, ModelConfig, ModelFactory, ModelRepository, \
+    print_model_summary
 
 __all__ = [
-    'AlexNet', 'ModelConfig', 'ModelFactory', 'ModelRepository'
+    'AlexNet', 'ModelConfig', 'ModelFactory', 'ModelRepository',
+    'print_model_summary',
 ]

@@ -5,15 +5,6 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-# Set up logging:
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("alexnet_model.log"),
-        logging.StreamHandler()
-    ]
-)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -283,11 +274,12 @@ class ModelRepository:
 ###############################################################################
 
 class ModelFactory:
+    
     @staticmethod
     def build(
         config: ModelConfig = None, 
         **kwargs: t.Dict[str, t.Any]
-    ) -> AlexNet:
+    ) -> t.Tuple[AlexNet, ModelConfig]:
         if config is None:
             config = ModelConfig()
         config.__dict__.update(kwargs)
@@ -296,13 +288,13 @@ class ModelFactory:
             num_classes=config.num_classes
         )
         model.apply(initialize_weights)
-        return model
+        return model, config
 
     @staticmethod
     def load(repository: ModelRepository) -> t.Tuple[AlexNet, ModelConfig]:
         model_config = ModelConfig()
         model_config = repository.load_model_config(model_config)
-        model = ModelFactory.build(model_config)
+        model, _ = ModelFactory.build(model_config)
         loaded_model = repository.load_model(model)
         return loaded_model, model_config
 
@@ -325,6 +317,10 @@ def _get_argument():
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--class-names', nargs='+', type=str, default=[])
     parser.add_argument(
+        '-nc', '--num-classes', type=int, default=1000,
+        help="The number of the classes."
+    )
+    parser.add_argument(
         '-m', '--model', type=str, default='outputs/saved_model',
         help="The path to model directory."
     )
@@ -336,6 +332,16 @@ def _get_argument():
 
 def main() -> None:
     import sys
+
+    # Set up logging:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(levelname)s \t %(message)s',
+        handlers=[
+            logging.FileHandler("alexnet_model.log"),
+            logging.StreamHandler()
+        ]
+    )
     args = _get_argument()
 
     if args.action == 'build':
@@ -343,10 +349,9 @@ def main() -> None:
         model_config.img_size = args.image_size
         model_config.num_channels = args.num_channels
         model_config.class_names = args.class_names
-        model_config.num_classes = len(args.class_names) if args.class_names \
-            else 1000
+        model_config.num_classes = args.num_classes
         model_config.dropout = args.dropout
-        model = ModelFactory.build(model_config)
+        model, _ = ModelFactory.build(model_config)
         model_repository = ModelRepository(args.model)
         model_repository.save(model, model_config)
 
