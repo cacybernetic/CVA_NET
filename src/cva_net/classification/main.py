@@ -10,6 +10,7 @@ import torch
 from .dataset import Dataset, HDF5DatasetReader
 from .optimizer import OptimizerRepository, OptimizerFactory
 from .trainer import fit
+from .utils import ModelPredictionRender
 
 # Set up logging.
 logging.basicConfig(
@@ -208,6 +209,12 @@ def train() -> None:
 
     model_repository.save(model, model_config)
     optimizer_repository.save(optimizer, optimizer_config)
+
+    mpr = ModelPredictionRender(
+        model=model, dataset=test_dataset, class_names=model_config.class_names,
+        image_size=model_config.img_size, output_dir=str(output)
+    )
+    mpr.make_predictions()
     ds_reader.close()
 
 
