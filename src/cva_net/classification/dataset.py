@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 import torch
 from torch.utils.data import Dataset as BaseDataset
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader as PytorchDataLoader
 
 import torchvision.transforms.functional as TF
 from torchvision import transforms
@@ -685,15 +685,15 @@ def get_dataloader(
     val_dataset = Dataset(test_dataset_source, end_index=num_val_samples)
 
     ## Create data loaders.
-    train_loader = DataLoader(
+    train_loader = PytorchDataLoader(
         dataset=train_dataset, batch_size=batch_size, shuffle=True,
         num_workers=num_workers, pin_memory=pin_memory, drop_last=drop_last,
     )
-    val_loader = DataLoader(
+    val_loader = PytorchDataLoader(
         dataset=val_dataset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=pin_memory,
     )
-    test_loader = DataLoader(
+    test_loader = PytorchDataLoader(
         dataset=test_dataset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=pin_memory,
     )

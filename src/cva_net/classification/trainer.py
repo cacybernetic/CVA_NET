@@ -1,4 +1,6 @@
 import logging
+import random
+import math
 import typing as t
 
 from typing_extensions import Self
@@ -6,12 +8,126 @@ import numpy as np
 import torch
 from torch import nn
 from torch import optim
-from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.data import Dataset, TensorDataset
 
 LOGGER = logging.getLogger(__name__)
 EXECUTION_RESULTS = t.Tuple[
     t.Dict[str, t.List[float]], t.Optional[t.Dict[str, t.List[float]]]
 ]
+
+
+class DataIterator:
+    """Dynamic data loading implementation.
+
+    :type dataset: `typing.Any`
+    :type batch_size: `int`
+    :type shuffle: `bool`
+    :type initial_samples_indices: `list` of `int`
+    """
+
+    def __init__(
+        self, dataset, batch_size=1, shuffle=False,
+        initial_samples_indices=None
+    ):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self._sample_indices = initial_samples_indices
+
+        if not self._sample_indices \
+                or len(self._sample_indices) > len(self.dataset):
+            self._sample_indices = list(range(len(dataset)))
+
+        self._batch_index = 0
+        self._length = None
+
+    @property
+    def batch_index(self):
+        """int: returns the current value of batch index"""
+        return self._batch_index
+
+    @property
+    def sample_indices(self):
+        """list of int: returns the list of batch indices"""
+        return self._sample_indices
+
+    @sample_indices.setter
+    def sample_indices(self, value):
+        if not value:
+            return
+        self._sample_indices = value
+
+    def reset_iteration(self):
+        if self.shuffle:
+            random.shuffle(self._sample_indices)
+        self._batch_index = 0
+
+    def set_batch_index(self, index):
+        if index < 0 or index >= len(self):
+            raise IndexError(f"Value index {index} is out of range.")
+        self._batch_index = index
+
+    def __len__(self):
+        if self._length is None:
+            sample_len = len(self.dataset)
+            batch_count = math.ceil(sample_len / self.batch_size)
+            self._length = batch_count
+        return self._length
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._batch_index < len(self):
+            sample_indices_len = len(self._sample_indices)
+            sample_index = self._batch_index * self.batch_size
+            samples = []
+            first_sample = self.dataset[self._sample_indices[sample_index]]
+            if not first_sample:
+                # raise StopIteration("Sample is none. So, end of iteration.")
+                self._batch_index += 1
+                return self.__next__()
+            if not isinstance(first_sample, tuple):
+                raise TypeError(
+                    "All the sample returned by the dataset"
+                    "must be formatted in tuple.")
+            samples.append(first_sample)
+            col_len = len(first_sample)
+
+            start = sample_index + 1
+            end = sample_index + self.batch_size
+            if end > sample_indices_len:
+                end = sample_indices_len
+            batch_iter = range(start, end)
+
+            for i in batch_iter:
+                sample = self.dataset[self._sample_indices[i]]
+                if not sample:
+                    self._batch_index += 1
+                    return self.__next__()
+                if len(sample) != col_len:
+                    raise ValueError(
+                        "Some sample has not same length with the first.")
+                samples.append(sample)
+
+            samples_len = len(samples)
+            sample_batch = []
+            for col in range(col_len):
+                # arr = samples[0][col]
+                arrays = []
+                for i in range(samples_len):
+                    x = samples[i][col]
+                    arrays.append(x)
+                arrays = np.array(arrays)
+                arrays = torch.tensor(arrays)
+                sample_batch.append(arrays)
+
+            sample_batch = tuple(sample_batch)
+            self._batch_index += 1
+            return sample_batch
+        else:
+            self.reset_iteration()
+            raise StopIteration("End of data iteration!")
 
 
 def _accuracy_score(y_pred: torch.Tensor, y_true: torch.Tensor):
@@ -471,10 +587,14 @@ class Trainer:
     def compile(self) -> None:
         """This method must be called before execution method."""
         # Creation of data loader.
-        self._train_loader = DataLoader(
+        # self._train_loader = DataLoader(
+        #     dataset=self._train_dataset, batch_size=self.batch_size,
+        #     shuffle=True, num_workers=self.num_workers,
+        #     pin_memory=self.pin_memory,
+        # )
+        self._train_loader = DataIterator(
             dataset=self._train_dataset, batch_size=self.batch_size,
-            shuffle=True, num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
+            shuffle=True,
         )
         self.num_train_batchs = len(self._train_loader)
         if self._val_dataset is None:
@@ -482,23 +602,35 @@ class Trainer:
                 self._val_dataset = get_validation_dataset(
                     self._test_dataset, self.val_prop
                 )
-                self._val_loader = DataLoader(
+                # self._val_loader = DataLoader(
+                #     dataset=self._val_dataset, batch_size=self.batch_size,
+                #     shuffle=False, num_workers=self.num_workers,
+                #     pin_memory=self.pin_memory, drop_last=self.drop_last,
+                # )
+                self._val_loader = DataIterator(
                     dataset=self._val_dataset, batch_size=self.batch_size,
-                    shuffle=False, num_workers=self.num_workers,
-                    pin_memory=self.pin_memory, drop_last=self.drop_last,
+                    shuffle=False,
                 )
                 self.num_val_batchs = len(self._val_loader)
         else:
-            self._val_loader = DataLoader(
+            # self._val_loader = DataLoader(
+            #     dataset=self._val_dataset, batch_size=self.batch_size,
+            #     shuffle=False, num_workers=self.num_workers,
+            #     pin_memory=self.pin_memory,
+            # )
+            self._val_loader = DataIterator(
                 dataset=self._val_dataset, batch_size=self.batch_size,
-                shuffle=False, num_workers=self.num_workers,
-                pin_memory=self.pin_memory,
+                shuffle=False,
             )
         if self._test_dataset is not None:
-            self._test_loader = DataLoader(
+            # self._test_loader = DataLoader(
+            #     dataset=self._test_dataset, batch_size=self.batch_size,
+            #     shuffle=False, num_workers=self.num_workers,
+            #     pin_memory=self.pin_memory, drop_last=self.drop_last,
+            # )
+            self._test_loader = DataIterator(
                 dataset=self._test_dataset, batch_size=self.batch_size,
-                shuffle=False, num_workers=self.num_workers,
-                pin_memory=self.pin_memory, drop_last=self.drop_last,
+                shuffle=False,
             )
             self.num_test_batchs = len(self._test_loader)
 
