@@ -525,25 +525,31 @@ class Trainer:
         device: t.Union[str, torch.device]=None,
         verbose: bool=True,
     ) -> None:
-        self._train_dataset = train_dataset
-        self._val_dataset = val_dataset
-        self._test_dataset = test_dataset
-        self._model = model
-        self._criterion = criterion
-        self._optimizer = optimizer
-        self._device = device
-        self._post_process = post_processing_func
-        if self._device is None:
-            self._device = torch.device('cuda') if torch.cuda.is_available() \
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
+        self.test_dataset = test_dataset
+        self.criterion = criterion
+        self.model = model
+        self.optimizer = optimizer
+        self.post_process = post_processing_func
+        self.device = device
+        if self.device is None:
+            self.device = torch.device('cuda') if torch.cuda.is_available() \
                 else torch.device('cpu')
+        elif isinstance(self.device, str):
+            self.device = torch.device(self.device)
 
-        self.num_epochs = num_epochs
-        self.batch_size = batch_size
-        self.gradient_acc = gradient_acc
-        self.num_workers = num_workers
-        self.drop_last = drop_last
-        self.pin_memory = pin_memory
-        self.val_prop = val_prop
+        self._num_epochs = num_epochs
+        self._batch_size = batch_size
+        self._gradient_acc = gradient_acc
+        self._num_workers = num_workers
+        self._drop_last = drop_last
+        self._pin_memory = pin_memory
+        self._val_prop = val_prop
+        if not self._val_prop:
+            self._val_prop = 0.2
+        self._verbose = verbose
+        
         self.num_batchs = 0
         self.num_train_batchs = -1
         self.num_val_batchs = -1
@@ -555,92 +561,84 @@ class Trainer:
         self.val_result = Result()
         self.test_result = Result()
         self.step = ''
-        self.verbose = verbose
 
-        if not self.val_prop:
-            self.val_prop = 0.2
-
-        self.train_loss = torch.tensor(0.0, device=self._device)
-        self.train_accuracy_score = torch.tensor(0.0, device=self._device)
-        self.train_precision_score = torch.tensor(0.0, device=self._device)
-        self.train_recall_score = torch.tensor(0.0, device=self._device)
-        self.train_avg_confidence = torch.tensor(0.0, device=self._device)
-        self.eval_loss = torch.tensor(0.0, device=self._device)
-        self.eval_accuracy_score = torch.tensor(0.0, device=self._device)
-        self.eval_precision_score = torch.tensor(0.0, device=self._device)
-        self.eval_recall_score = torch.tensor(0.0, device=self._device)
-        self.eval_avg_confidence = torch.tensor(0.0, device=self._device)
-        self.loss = torch.tensor(0.0, device=self._device)
-        self.accuracy_score = torch.tensor(0.0, device=self._device)
-        self.precision_score = torch.tensor(0.0, device=self._device)
-        self.recall_score = torch.tensor(0.0, device=self._device)
-        self.avg_confidence = torch.tensor(0.0, device=self._device)
+        self.train_loss = torch.tensor(0.0, device=self.device)
+        self.train_accuracy_score = torch.tensor(0.0, device=self.device)
+        self.train_precision_score = torch.tensor(0.0, device=self.device)
+        self.train_recall_score = torch.tensor(0.0, device=self.device)
+        self.train_avg_confidence = torch.tensor(0.0, device=self.device)
+        self.eval_loss = torch.tensor(0.0, device=self.device)
+        self.eval_accuracy_score = torch.tensor(0.0, device=self.device)
+        self.eval_precision_score = torch.tensor(0.0, device=self.device)
+        self.eval_recall_score = torch.tensor(0.0, device=self.device)
+        self.eval_avg_confidence = torch.tensor(0.0, device=self.device)
+        # self.loss = torch.tensor(0.0, device=self.device)
+        # self.accuracy_score = torch.tensor(0.0, device=self.device)
+        # self.precision_score = torch.tensor(0.0, device=self.device)
+        # self.recall_score = torch.tensor(0.0, device=self.device)
+        # self.avg_confidence = torch.tensor(0.0, device=self.device)
 
         # self._accuracy_score = AccuracyScore()
         # self._precision_score = PrecisionScore()
         # self._recall_score = RecallScore()
-        self._train_loader = None
-        self._val_loader = None
-        self._test_loader = None
+        self.train_loader = None
+        self.val_loader = None
+        self.test_loader = None
         self._compiled = False
-        self._completed = False
-        self._epoch_str_width = len(str(self.num_epochs))
-        self._pbar = None
-    
-    def completed(self) -> bool:
-        return self._completed
+        self.epoch_str_width = len(str(self._num_epochs))
+        self.pbar = None
 
     def compile(self) -> None:
         """This method must be called before execution method."""
         # Creation of data loader.
-        self._train_loader = DataLoader(
-            dataset=self._train_dataset, batch_size=self.batch_size,
-            shuffle=True, num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
+        self.train_loader = DataLoader(
+            dataset=self.train_dataset, batch_size=self._batch_size,
+            shuffle=True, num_workers=self._num_workers,
+            pin_memory=self._pin_memory,
         )
-        # self._train_loader = DataIterator(
-        #     dataset=self._train_dataset, batch_size=self.batch_size,
+        # self.train_loader = DataIterator(
+        #     dataset=self.train_dataset, batch_size=self._batch_size,
         #     shuffle=True,
         # )
-        self.num_train_batchs = len(self._train_loader)
-        if self._val_dataset is None:
-            if self._test_dataset is not None:
-                self._val_dataset = get_validation_dataset(
-                    self._test_dataset, self.val_prop
+        self.num_train_batchs = len(self.train_loader)
+        if self.val_dataset is None:
+            if self.test_dataset is not None:
+                self.val_dataset = get_validation_dataset(
+                    self.test_dataset, self._val_prop
                 )
-                self._val_loader = DataLoader(
-                    dataset=self._val_dataset, batch_size=self.batch_size,
-                    shuffle=False, num_workers=self.num_workers,
-                    pin_memory=self.pin_memory, drop_last=self.drop_last,
+                self.val_loader = DataLoader(
+                    dataset=self.val_dataset, batch_size=self._batch_size,
+                    shuffle=False, num_workers=self._num_workers,
+                    pin_memory=self._pin_memory, drop_last=self._drop_last,
                 )
-                # self._val_loader = DataIterator(
-                #     dataset=self._val_dataset, batch_size=self.batch_size,
+                # self.val_loader = DataIterator(
+                #     dataset=self.val_dataset, batch_size=self._batch_size,
                 #     shuffle=False,
                 # )
-                self.num_val_batchs = len(self._val_loader)
+                self.num_val_batchs = len(self.val_loader)
         else:
-            self._val_loader = DataLoader(
-                dataset=self._val_dataset, batch_size=self.batch_size,
-                shuffle=False, num_workers=self.num_workers,
-                pin_memory=self.pin_memory,
+            self.val_loader = DataLoader(
+                dataset=self.val_dataset, batch_size=self._batch_size,
+                shuffle=False, num_workers=self._num_workers,
+                pin_memory=self._pin_memory, drop_last=self._drop_last,
             )
-            # self._val_loader = DataIterator(
-            #     dataset=self._val_dataset, batch_size=self.batch_size,
+            # self.val_loader = DataIterator(
+            #     dataset=self.val_dataset, batch_size=self._batch_size,
             #     shuffle=False,
             # )
-        if self._test_dataset is not None:
-            self._test_loader = DataLoader(
-                dataset=self._test_dataset, batch_size=self.batch_size,
-                shuffle=False, num_workers=self.num_workers,
-                pin_memory=self.pin_memory, drop_last=self.drop_last,
+        if self.test_dataset is not None:
+            self.test_loader = DataLoader(
+                dataset=self.test_dataset, batch_size=self._batch_size,
+                shuffle=False, num_workers=self._num_workers,
+                pin_memory=self._pin_memory, drop_last=self._drop_last,
             )
-            # self._test_loader = DataIterator(
-            #     dataset=self._test_dataset, batch_size=self.batch_size,
+            # self.test_loader = DataIterator(
+            #     dataset=self.test_dataset, batch_size=self._batch_size,
             #     shuffle=False,
             # )
-            self.num_test_batchs = len(self._test_loader)
+            self.num_test_batchs = len(self.test_loader)
 
-        self._model = self._model.to(self._device)
+        self.model = self.model.to(self.device)
         self._compiled = True
 
     def feed_forward(
@@ -649,11 +647,11 @@ class Trainer:
         targets: torch.Tensor=None
     ) -> t.Tuple[torch.Tensor, t.Optional[torch.Tensor]]:
         ## Forward pass.
-        logits = self._model.forward(features)
+        logits = self.model.forward(features)
         ## Loss computing if targets provided.
         loss = None
         if targets is not None:
-            loss = self._criterion(logits, targets)
+            loss = self.criterion(logits, targets)
         return logits, loss
 
     def compute_metric(
@@ -662,7 +660,7 @@ class Trainer:
         targets: torch.Tensor
     ) -> t.Tuple[t.Dict[str, torch.Tensor], torch.Tensor]:
         ## Computing of class predictions from model logits.
-        results = self._post_process(logits)
+        results = self.post_process(logits)
         predictions = results[0]
         confidences = results[1]
         ## Metric calculation.
@@ -683,14 +681,14 @@ class Trainer:
         logits, loss = self.feed_forward(samples_batch, targets_batch)
         ## Backward pass: compute gradient.
         loss.backward()
-        loss_value = torch.tensor(loss.item(), device=self._device)
+        loss_value = torch.tensor(loss.item(), device=self.device)
         ## Gradient accumulation.
         self.num_acc += logits.shape[0]
-        if self.num_acc >= self.gradient_acc:
-            self._optimizer.step()
+        if self.num_acc >= self._gradient_acc:
+            self.optimizer.step()
             self.num_acc = 0
             ### Cleaning gradient accumulated.
-            self._optimizer.zero_grad()
+            self.optimizer.zero_grad()
         ## Metric calculation.
         results, confs = self.compute_metric(logits, targets_batch)
         results.update(dict(loss=loss_value))
@@ -703,18 +701,18 @@ class Trainer:
     ) -> t.Tuple[t.Dict[str, torch.Tensor], torch.Tensor]:
         ## Forward pass.
         logits, loss = self.feed_forward(samples_batch, targets_batch)
-        loss_value = torch.tensor(loss.item(), device=self._device)
+        loss_value = torch.tensor(loss.item(), device=self.device)
         ## Metric calculation.
         results, confs = self.compute_metric(logits, targets_batch)
         results.update(dict(loss=loss_value))
         return results, confs
 
-    def _get_step_progress_iterator(self) -> tqdm:
+    def get_step_progress_iterator(self) -> tqdm:
         desc = ''
         unit = ''
         total = None
         if self.step in ('train', 'test', 'val'):
-            desc = f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}]"
+            desc = f"Epoch {self.epoch_idx + 1:>{self.epoch_str_width}}/{self._num_epochs} - [{self.step:5s}]"
             unit = ' batch(s)'
         if self.step == 'train':
             total = self.num_train_batchs
@@ -735,23 +733,24 @@ class Trainer:
 
     def _result_json_format(self, **metric: t.Dict[str, torch.Tensor]) -> None:
         return {
-            name: "%6.3f" % (value.detach().cpu().item(),)
+            name: ("%6.3f" if 'loss' not in name else "%7.4f")
+                  % (value.detach().cpu().item(),)
             for name, value in metric.items()
         }
 
     def train(self, data_loader) -> t.Dict[str, torch.Tensor]:
-        total_loss = torch.tensor(0.0, device=self._device)
-        total_accuracy = torch.tensor(0.0, device=self._device)
-        total_precision = torch.tensor(0.0, device=self._device)
-        total_recall = torch.tensor(0.0, device=self._device)
-        total_confs = torch.tensor(0.0, device=self._device)
+        total_loss = torch.tensor(0.0, device=self.device)
+        total_accuracy = torch.tensor(0.0, device=self.device)
+        total_precision = torch.tensor(0.0, device=self.device)
+        total_recall = torch.tensor(0.0, device=self.device)
+        total_confs = torch.tensor(0.0, device=self.device)
         metrics = {}
 
-        self._model.train()
+        self.model.train()
         for batch_idx, (features, targets) in enumerate(data_loader):
             self.batch_idx = batch_idx
-            features = features.to(self._device)
-            targets = targets.to(self._device)
+            features = features.to(self.device)
+            targets = targets.to(self.device)
             results, confs = self.train_step(features, targets)
 
             total_loss += results['loss']
@@ -772,8 +771,8 @@ class Trainer:
             # self.precision_score = self.train_precision_score
             # self.recall_score = self.train_recall_score
             # self.avg_confidence = self.train_avg_confidence
-            if self.verbose:
-                self._pbar.update(1)
+            if self._verbose:
+                self.pbar.update(1)
 
             metrics = dict(
                 loss=self.train_loss,
@@ -782,26 +781,26 @@ class Trainer:
                 recall_score=self.train_recall_score,
                 avg_confidence=self.train_avg_confidence,
             )
-            if self.verbose:
-                self._pbar.set_postfix(
+            if self._verbose:
+                self.pbar.set_postfix(
                     self._result_json_format(**metrics), refresh=False
                 )
 
         return metrics
 
     def eval(self, data_loader) -> t.Dict[str, torch.Tensor]:
-        total_loss = torch.tensor(0.0, device=self._device)
-        total_accuracy = torch.tensor(0.0, device=self._device)
-        total_precision = torch.tensor(0.0, device=self._device)
-        total_recall = torch.tensor(0.0, device=self._device)
-        total_confs = torch.tensor(0.0, device=self._device)
+        total_loss = torch.tensor(0.0, device=self.device)
+        total_accuracy = torch.tensor(0.0, device=self.device)
+        total_precision = torch.tensor(0.0, device=self.device)
+        total_recall = torch.tensor(0.0, device=self.device)
+        total_confs = torch.tensor(0.0, device=self.device)
 
-        self._model.eval()
+        self.model.eval()
         with torch.no_grad():
             for batch_idx, (features, targets) in enumerate(data_loader):
                 self.batch_idx = batch_idx
-                features = features.to(self._device)
-                targets = targets.to(self._device)
+                features = features.to(self.device)
+                targets = targets.to(self.device)
                 results, confs = self.eval_step(features, targets)
 
                 total_loss += results['loss']
@@ -822,8 +821,8 @@ class Trainer:
                 # self.precision_score = self.eval_precision_score
                 # self.recall_score = self.eval_recall_score
                 # self.avg_confidence = self.eval_avg_confidence
-                if self.verbose:
-                    self._pbar.update(1)
+                if self._verbose:
+                    self.pbar.update(1)
 
                 metrics = dict(
                     loss=self.eval_loss,
@@ -832,8 +831,8 @@ class Trainer:
                     recall_score=self.eval_recall_score,
                     avg_confidence=self.eval_avg_confidence,
                 )
-                if self.verbose:
-                    self._pbar.set_postfix(
+                if self._verbose:
+                    self.pbar.set_postfix(
                         self._result_json_format(**metrics), refresh=False
                     )
 
@@ -846,67 +845,69 @@ class Trainer:
                 "before call the `execute()` method."
             )
 
-        for epoch in range(self.num_epochs):
+        for epoch in range(self._num_epochs):
             self.epoch_idx = epoch
-            
+
             self.step = "train"
             self.num_batchs = self.num_train_batchs
-            if self.verbose:
-                self._pbar = self._get_step_progress_iterator()
+            if self._verbose:
+                self.pbar = self.get_step_progress_iterator()
 
-            results = self.train(self._train_loader)
+            results = self.train(self.train_loader)
             self.train_result += results
 
             # update iterator:
-            if self.verbose:
+            if self._verbose:
                 results = self._result_json_format(**results)
-                self._pbar.write(
-                    f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}] "
+                self.pbar.write(
+                    f"Epoch {self.epoch_idx + 1:>{self.epoch_str_width}}/{self._num_epochs} - [{self.step:5s}] "
                     "- " + " - ".join([name + ": " + val for name, val in results.items()])
                 )
-                self._pbar.close()
+                self.pbar.close()
 
-            if self._val_loader is None:
+            if self.val_loader is None:
                 continue
+            ###################################################################
             self.step = "val"
             self.num_batchs = self.num_val_batchs
-            if self.verbose:
-                self._pbar = self._get_step_progress_iterator()
+            if self._verbose:
+                self.pbar = self.get_step_progress_iterator()
 
-            results = self.eval(self._val_loader)
+            results = self.eval(self.val_loader)
             self.val_result += results
 
             # update progress bar:
-            if self.verbose:
+            if self._verbose:
                 results = self._result_json_format(**results)
-                self._pbar.write(
-                    f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}] "
+                self.pbar.write(
+                    f"Epoch {self.epoch_idx + 1:>{self.epoch_str_width}}/{self._num_epochs} - [{self.step:5s}] "
                     "- " + " - ".join([name + ": " + val for name, val in results.items()])
                 )
-                self._pbar.close()
+                self.pbar.close()
 
-        if self._test_loader is None:
+        if self.test_loader is None:
             return (
                 self.train_result.values,
                 self.val_result.values,
                 self.test_result.values
             )
+        #######################################################################
         self.step = 'test'
         self.num_batchs = self.num_test_batchs
-        if self.verbose:
-            self._pbar = self._get_step_progress_iterator()
+        if self._verbose:
+            self.pbar = self.get_step_progress_iterator()
 
-        results = self.eval(self._test_loader)
+        results = self.eval(self.test_loader)
         self.test_result += results
 
         # update progress bar:
-        if self.verbose:
+        if self._verbose:
             results = self._result_json_format(**results)
-            self._pbar.write(
-                f"[{self.step:5s}] " \
+            self.pbar.write(
+                f"\n[{self.step:5s}] " \
                 + " - ".join([name + ": " + val for name, val in results.items()])
             )
-            self._pbar.close()
+            self.pbar.close()
 
         return (
             self.train_result.values,
@@ -967,16 +968,16 @@ def test_fit_function() -> None:
     torch.manual_seed(42)
     model, _ = AlexnetModel.build()
     train_dataset = TensorDataset(
-        torch.randn((1000, 3, 224, 224)),
-        torch.randint(0, 32, (1000,), dtype=torch.int64)
+        torch.randn((100, 3, 224, 224)),
+        torch.randint(0, 32, (100,), dtype=torch.int64)
     )
     test_dataset = TensorDataset(
-        torch.randn((700, 3, 224, 224)),
-        torch.randint(0, 32, (700,), dtype=torch.int64)
+        torch.randn((70, 3, 224, 224)),
+        torch.randint(0, 32, (70,), dtype=torch.int64)
     )
     ret = fit(
         train_dataset, model, test_dataset, num_epochs=2, gradient_acc=8,
-        val_prop=0.4
+        val_prop=0.4, num_workers=1, batch_size=1
     )
     train_results, val_results, test_results = ret
     print("\ntrain_results: \n" + json.dumps(train_results, indent=4))
