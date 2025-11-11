@@ -118,10 +118,14 @@ def _load_model_from_file(model_dir):
 
 
 def train() -> None:
-    from cva_net.utils import set_seed
+    from cva_net.utils import set_seed, get_torch_device_name
 
     args = get_arguments()
-    set_seed(args.seed, args.device)
+
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    if args.device is not None:
+        device = get_torch_device_name(args.device)
+    set_seed(args.seed, device)
 
     output = Path(args.output_dir)
     output.mkdir(exist_ok=True)
