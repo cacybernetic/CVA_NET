@@ -8,6 +8,8 @@ install:
 	$(PYTHON3) -m pip install --upgrade pip
 	$(PYTHON3) -m pip install torch==2.8.0 torchvision --index-url "https://download.pytorch.org/whl/cpu" && \
 	$(PYTHON3) -m pip install -r requirements.txt
+	# Too many open files can cause connection errors:
+	ulimit -n 4096   # Increase file descriptor limit
 
 gpu_install:
 	test -d .venv || (python3 -m venv .venv && echo "\033[92mVirtual environment is created successfully.\033[0m")

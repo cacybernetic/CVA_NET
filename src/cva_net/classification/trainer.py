@@ -729,7 +729,7 @@ def fit(
         train_dataset=train_dataset, val_dataset=val_dataset, model=model,
         criterion=criterion, optimizer=optimizer, test_dataset=test_dataset,
         num_epochs=num_epochs, gradient_acc=gradient_acc,
-        batch_size=batch_size, num_workers=num_workers, drop_last=drop_last,
+        batch_size=batch_size, num_workers=0, drop_last=drop_last,
         pin_memory=pin_memory, val_prop=val_prop, device=device,
         post_processing_func=post_processing_func,
     )
