@@ -9,14 +9,14 @@ import numpy as np
 import torch
 from torch import nn
 from torch import optim
-from torch.utils.data import Dataset, TensorDataset
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 
 LOGGER = logging.getLogger(__name__)
 EXECUTION_RESULTS = t.Tuple[
     t.Dict[str, t.List[float]], t.Optional[t.Dict[str, t.List[float]]]
 ]
 
-
+'''
 class DataIterator:
     """Dynamic data loading implementation.
 
@@ -129,7 +129,7 @@ class DataIterator:
         else:
             self.reset_iteration()
             raise StopIteration("End of data iteration!")
-
+'''
 
 def _accuracy_score(y_pred: torch.Tensor, y_true: torch.Tensor):
     r"""
@@ -593,51 +593,51 @@ class Trainer:
     def compile(self) -> None:
         """This method must be called before execution method."""
         # Creation of data loader.
-        # self._train_loader = DataLoader(
-        #     dataset=self._train_dataset, batch_size=self.batch_size,
-        #     shuffle=True, num_workers=self.num_workers,
-        #     pin_memory=self.pin_memory,
-        # )
-        self._train_loader = DataIterator(
+        self._train_loader = DataLoader(
             dataset=self._train_dataset, batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=True, num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
         )
+        # self._train_loader = DataIterator(
+        #     dataset=self._train_dataset, batch_size=self.batch_size,
+        #     shuffle=True,
+        # )
         self.num_train_batchs = len(self._train_loader)
         if self._val_dataset is None:
             if self._test_dataset is not None:
                 self._val_dataset = get_validation_dataset(
                     self._test_dataset, self.val_prop
                 )
-                # self._val_loader = DataLoader(
-                #     dataset=self._val_dataset, batch_size=self.batch_size,
-                #     shuffle=False, num_workers=self.num_workers,
-                #     pin_memory=self.pin_memory, drop_last=self.drop_last,
-                # )
-                self._val_loader = DataIterator(
+                self._val_loader = DataLoader(
                     dataset=self._val_dataset, batch_size=self.batch_size,
-                    shuffle=False,
+                    shuffle=False, num_workers=self.num_workers,
+                    pin_memory=self.pin_memory, drop_last=self.drop_last,
                 )
+                # self._val_loader = DataIterator(
+                #     dataset=self._val_dataset, batch_size=self.batch_size,
+                #     shuffle=False,
+                # )
                 self.num_val_batchs = len(self._val_loader)
         else:
-            # self._val_loader = DataLoader(
-            #     dataset=self._val_dataset, batch_size=self.batch_size,
-            #     shuffle=False, num_workers=self.num_workers,
-            #     pin_memory=self.pin_memory,
-            # )
-            self._val_loader = DataIterator(
+            self._val_loader = DataLoader(
                 dataset=self._val_dataset, batch_size=self.batch_size,
-                shuffle=False,
+                shuffle=False, num_workers=self.num_workers,
+                pin_memory=self.pin_memory,
             )
-        if self._test_dataset is not None:
-            # self._test_loader = DataLoader(
-            #     dataset=self._test_dataset, batch_size=self.batch_size,
-            #     shuffle=False, num_workers=self.num_workers,
-            #     pin_memory=self.pin_memory, drop_last=self.drop_last,
+            # self._val_loader = DataIterator(
+            #     dataset=self._val_dataset, batch_size=self.batch_size,
+            #     shuffle=False,
             # )
-            self._test_loader = DataIterator(
+        if self._test_dataset is not None:
+            self._test_loader = DataLoader(
                 dataset=self._test_dataset, batch_size=self.batch_size,
-                shuffle=False,
+                shuffle=False, num_workers=self.num_workers,
+                pin_memory=self.pin_memory, drop_last=self.drop_last,
             )
+            # self._test_loader = DataIterator(
+            #     dataset=self._test_dataset, batch_size=self.batch_size,
+            #     shuffle=False,
+            # )
             self.num_test_batchs = len(self._test_loader)
 
         self._model = self._model.to(self._device)
