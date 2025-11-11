@@ -4,6 +4,7 @@ import math
 import typing as t
 
 from typing_extensions import Self
+from tqdm import tqdm
 import numpy as np
 import torch
 from torch import nn
@@ -522,6 +523,7 @@ class Trainer:
         val_prop: float=None,
         gradient_acc: int=256,
         device: t.Union[str, torch.device]=None,
+        verbose: bool=True,
     ) -> None:
         self._train_dataset = train_dataset
         self._val_dataset = val_dataset
@@ -552,6 +554,7 @@ class Trainer:
         self.train_result = Result()
         self.test_result = Result()
         self.step = ''
+        self.verbose = verbose
 
         if not self.val_prop:
             self.val_prop = 0.2
@@ -580,6 +583,7 @@ class Trainer:
         self._test_loader = None
         self._compiled = False
         self._completed = False
+        self._epoch_str_width = len(str(self.num_epochs))
     
     def completed(self) -> bool:
         return self._completed
@@ -703,15 +707,45 @@ class Trainer:
         results.update(dict(loss=loss_value))
         return results, confs
 
+    def _get_step_progress_iterator(self) -> tqdm:
+        desc = ''
+        unit = ''
+        total = None
+        if self.step in ('train', 'test', 'val'):
+            desc = f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}]",
+            unit = ' batch(s)'
+        if self.step == 'train':
+            total = self.num_train_batchs
+        elif self.step == 'val':
+            total = self.num_val_batchs
+        elif self.step == 'test':
+            total = self.num_test_batchs
+
+        iterator = tqdm(
+            total=total,
+            desc=desc,
+            unit=unit,
+            # ncols=120,  # Fixed width for consistent display;
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining} {postfix}]',
+            leave=False  # Don't leave progress bar after completion;
+        )
+        return iterator
+
+
     def train(self, data_loader) -> t.Dict[str, torch.Tensor]:
         total_loss = torch.tensor(0.0, device=self._device)
         total_accuracy = torch.tensor(0.0, device=self._device)
         total_precision = torch.tensor(0.0, device=self._device)
         total_recall = torch.tensor(0.0, device=self._device)
         total_confs = torch.tensor(0.0, device=self._device)
+        metrics = {}
 
         self._model.train()
-        for batch_idx, (features, targets) in enumerate(data_loader):
+        iterator = data_loader
+        if self.verbose:
+            iterator = self._get_step_progress_iterator()
+
+        for batch_idx, (features, targets) in enumerate(iterator):
             self.batch_idx = batch_idx
             features = features.to(self._device)
             targets = targets.to(self._device)
@@ -730,20 +764,23 @@ class Trainer:
             self.train_recall_score = total_recall / total_batchs
             self.train_avg_confidence = total_confs / total_batchs
 
-            self.loss = self.train_loss
-            self.accuracy_score = self.train_accuracy_score
-            self.precision_score = self.train_precision_score
-            self.recall_score = self.train_recall_score
-            self.avg_confidence = self.train_avg_confidence
+            # self.loss = self.train_loss
+            # self.accuracy_score = self.train_accuracy_score
+            # self.precision_score = self.train_precision_score
+            # self.recall_score = self.train_recall_score
+            # self.avg_confidence = self.train_avg_confidence
 
-        final_results = dict(
-            train_loss=self.train_loss,
-            train_accuracy_score=self.train_accuracy_score,
-            train_precision_score=self.train_precision_score,
-            train_recall_score=self.train_recall_score,
-            train_avg_confidence=self.train_avg_confidence,
-        )
-        return final_results
+            metrics = dict(
+                train_loss=self.train_loss,
+                train_accuracy_score=self.train_accuracy_score,
+                train_precision_score=self.train_precision_score,
+                train_recall_score=self.train_recall_score,
+                train_avg_confidence=self.train_avg_confidence,
+            )
+            if self.verbose:
+                iterator.set_postfix(metrics, refresh=False)
+
+        return metrics
 
     def eval(self, data_loader) -> t.Dict[str, torch.Tensor]:
         total_loss = torch.tensor(0.0, device=self._device)
@@ -753,8 +790,12 @@ class Trainer:
         total_confs = torch.tensor(0.0, device=self._device)
 
         self._model.eval()
+        iterator = data_loader
+        if self.verbose:
+            iterator = self._get_step_progress_iterator()
+
         with torch.no_grad():
-            for batch_idx, (features, targets) in enumerate(data_loader):
+            for batch_idx, (features, targets) in enumerate(iterator):
                 self.batch_idx = batch_idx
                 features = features.to(self._device)
                 targets = targets.to(self._device)
@@ -773,11 +814,11 @@ class Trainer:
                 self.eval_recall_score = total_recall / total_batchs
                 self.eval_avg_confidence = total_confs / total_batchs
 
-                self.loss = self.eval_loss
-                self.accuracy_score = self.eval_accuracy_score
-                self.precision_score = self.eval_precision_score
-                self.recall_score = self.eval_recall_score
-                self.avg_confidence = self.eval_avg_confidence
+                # self.loss = self.eval_loss
+                # self.accuracy_score = self.eval_accuracy_score
+                # self.precision_score = self.eval_precision_score
+                # self.recall_score = self.eval_recall_score
+                # self.avg_confidence = self.eval_avg_confidence
 
         final_results = dict(
             eval_loss=self.eval_loss,
@@ -797,15 +838,30 @@ class Trainer:
 
         for epoch in range(self.num_epochs):
             self.epoch_idx = epoch
+            
             self.step = "train"
+            if self.verbose:
+                self.pbar = self._get_step_progress_iterator()
             self.num_batchs = self.num_train_batchs
+
             results = self.train(self._train_loader)
             self.train_result += results
+            
+            # update iterator:
+            if self.verbose:
+                self.pbar.write(
+                    f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}] "
+                    "- " + " - ".join([name + ": " + val for name, val in results.items()])
+                )
+                self.pbar.close()
 
             if self._val_loader is None:
                 continue
             self.step = "val"
             self.num_batchs = self.num_val_batchs
+            if self.verbose:
+                self.pbar = self._get_step_progress_iterator()
+            
             results = self.eval(self._val_loader)
             results = {
                 'val_loss': results['eval_loss'],
@@ -816,12 +872,31 @@ class Trainer:
             }
             self.train_result += results
 
+            # update iterator:
+            if self.verbose:
+                self.pbar.write(
+                    f"Epoch {self.epoch_idx + 1:>{self._epoch_str_width}}/{self.num_epochs} - [{self.step:5s}] "
+                    "- " + " - ".join([name + ": " + val for name, val in results.items()])
+                )
+                self.pbar.close()
+
         if self._test_loader is None:
             return self.train_result.values, None
         self.step = 'test'
         self.num_batchs = self.num_test_batchs
+        if self.verbose:
+            self.pbar = self._get_step_progress_iterator()
+
         results = self.eval(self._test_loader)
         self.test_result += results
+        
+        # update iterator:
+        if self.verbose:
+            self.pbar.write(
+                f"[{self.step:5s}] "
+                "- " + " - ".join([name + ": " + val for name, val in results.items()])
+            )
+            self.pbar.close()
         return self.train_result.values, self.test_result.values
 
 
@@ -861,233 +936,12 @@ def fit(
         train_dataset=train_dataset, val_dataset=val_dataset, model=model,
         criterion=criterion, optimizer=optimizer, test_dataset=test_dataset,
         num_epochs=num_epochs, gradient_acc=gradient_acc,
-        batch_size=batch_size, num_workers=0, drop_last=drop_last,
+        batch_size=batch_size, num_workers=num_workers, drop_last=drop_last,
         pin_memory=pin_memory, val_prop=val_prop, device=device,
-        post_processing_func=post_processing_func,
+        post_processing_func=post_processing_func, verbose=True,
     )
     trainer.compile()
-    
-    import asyncio
-    from tqdm import tqdm
-
-    # Shared state for monitoring
-    training_complete = asyncio.Event()
-    train_results = None
-    test_results = None
-
-
-    async def train():
-        """
-        Execute training in a separate thread to avoid blocking
-        the event loop.
-        """
-        nonlocal train_results, test_results
-
-        loop = asyncio.get_running_loop()
-        # Run the blocking trainer.execute() in the default thread
-        # pool executor.
-        train_results, test_results = await loop.run_in_executor(
-            None, trainer.execute
-        )
-    
-        # Signal that training is complete.
-        training_complete.set()
-        return train_results, test_results
-
-    """
-    async def monitoring():
-        \"""Monitor training progress until completion.\"""
-        while not training_complete.is_set():
-            # Check if trainer has started and has valid epoch information
-            # if hasattr(trainer, 'epoch_idx') and hasattr(trainer, 'num_epochs'):
-            epochs = trainer.epoch_idx + 1
-            remaining = trainer.num_epochs - epochs
-            step_info = f"{trainer.step}: " if hasattr(trainer, 'step') else ""
-            print(
-                f"\r{step_info}[" + ("=" * epochs) + ("." * remaining) + "]",
-                end='', flush=True
-            )
-
-            # Check more frequently for responsiveness, but not too frequently.
-            await asyncio.sleep(0.1)
-
-        # Print final progress bar
-        # if hasattr(trainer, 'num_epochs'):
-        print(f"\r[" + ("=" * trainer.num_epochs) + "] Complete!", flush=True)
-    """
-
-    # async def monitoring():
-    #     """Monitor training progress until completion."""
-    #     LOGGER.info(
-    #         "Number of train batchs: " + str(trainer.num_train_batchs)
-    #     )
-    #     LOGGER.info(
-    #         "Number of val batchs: " + str(trainer.num_val_batchs)
-    #     )
-    #     LOGGER.info(
-    #         "Number of test batchs: " + str(trainer.num_test_batchs)
-    #     )
-    #     pbar = None
-    #     current_step = ''
-    #     while not training_complete.is_set():
-    #         if trainer.step != current_step or current_progress >= num_batchs:
-    #             if pbar is not None:
-    #                 # pbar.clear()
-    #                 pbar.close()
-    #             current_progress = 0
-    #             current_step = trainer.step
-    #             num_batchs = trainer.num_batchs
-    #             pbar = tqdm(total=num_batchs, unit=" batch(s)")
-    #             c = len(str(trainer.num_epochs))
-    #             pbar.set_description(
-    #                 "Epoch: "
-    #                 + ("%" + str(c) + "d") % (trainer.epoch_idx + 1,)
-    #                 + "/"
-    #                 + str(trainer.num_epochs)
-    #                 + " - ["
-    #                 + f"{current_step:5s}"
-    #                 + "]"
-    #             )
-
-    #         loss = trainer.loss.detach().cpu()
-    #         accuracy_score = trainer.accuracy_score.detach().cpu()
-    #         precision_score = trainer.precision_score.detach().cpu()
-    #         recall_score = trainer.recall_score.detach().cpu()
-    #         avg_confidence = trainer.avg_confidence.detach().cpu()
-    #         pbar.set_postfix({
-    #             "loss": f"{loss.item():8.6f}",
-    #             "acc": f"{accuracy_score.item():4.2f}",
-    #             "precision": f"{precision_score.item():4.2f}",
-    #             "recall": f"{recall_score.item():4.2f}",
-    #             "avg_conf": f"{avg_confidence.item():4.2f}",
-    #         })
-    #         batchs = trainer.batch_idx + 1
-    #         inc = batchs - current_progress
-    #         if inc >= 1:
-    #             pbar.update(inc)
-    #             current_progress = batchs
-    #         # Check more frequently for responsiveness,
-    #         # but not too frequently.
-    #         await asyncio.sleep(0.001)
-
-    async def monitoring():
-        """Monitor training progress until completion."""
-
-        # Log initial information
-        LOGGER.info(f"Number of train batches: {trainer.num_train_batchs}")
-        LOGGER.info(f"Number of val batches: {trainer.num_val_batchs}")
-        LOGGER.info(f"Number of test batches: {trainer.num_test_batchs}")
-
-        pbar = None
-        current_step = ''
-        current_progress = 0
-        epoch_width = len(str(trainer.num_epochs))
-        metrics = {}
-        s_mem = ''
-
-        try:
-            while not training_complete.is_set():
-                # Check if we need to create a new progress bar
-                # (new step or completed previous).
-                num_batchs =  getattr(trainer, 'num_batchs', 0)
-                if trainer.step != current_step or current_progress >= num_batchs:
-                    # Close previous progress bar if it exists.
-                    if pbar is not None:
-                        curr_progress =  getattr(trainer, 'batch_idx', 0) + 1
-                        if s_mem != current_step and curr_progress >= num_batchs:
-                            pbar.write(
-                                f"Epoch {trainer.epoch_idx + 1:>{epoch_width}}/{trainer.num_epochs} - [{current_step:5s}] "
-                                "- " + " - ".join([name + ": " + val for name, val in metrics.items()])
-                            )
-                            s_mem = current_step
-                        pbar.close()
-                        await asyncio.sleep(3)
-
-                    # Reset tracking variables.
-                    current_progress = 0
-                    current_step = trainer.step
-                    num_batchs = getattr(trainer, 'num_batchs', 0)
-
-                    # Create new progress bar for current step.
-                    pbar = tqdm(
-                        total=num_batchs,
-                        desc=f"Epoch {trainer.epoch_idx + 1:>{epoch_width}}/{trainer.num_epochs} - [{current_step:5s}]",
-                        unit="batch",
-                        # ncols=120,  # Fixed width for consistent display;
-                        bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining} {postfix}]',
-                        leave=False  # Don't leave progress bar after completion;
-                    )
-
-                # Only update metrics if progress bar exists and trainer
-                # has valid data.
-                if pbar is not None and hasattr(trainer, 'loss'):
-                    try:
-                        # Safely extract metrics with error handling.
-                        if hasattr(trainer.loss, 'detach'):
-                            loss_val = trainer.loss.detach().cpu().item()
-                            metrics['loss'] = f"{loss_val:8.6f}"
-                        
-                        if hasattr(trainer, 'accuracy_score') and hasattr(trainer.accuracy_score, 'detach'):
-                            acc_val = trainer.accuracy_score.detach().cpu().item()
-                            metrics['acc'] = f"{acc_val:4.2f}"
-
-                        if hasattr(trainer, 'precision_score') and hasattr(trainer.precision_score, 'detach'):
-                            prec_val = trainer.precision_score.detach().cpu().item()
-                            metrics['precision'] = f"{prec_val:4.2f}"
-                        
-                        if hasattr(trainer, 'recall_score') and hasattr(trainer.recall_score, 'detach'):
-                            rec_val = trainer.recall_score.detach().cpu().item()
-                            metrics['recall'] = f"{rec_val:4.2f}"
-                        
-                        if hasattr(trainer, 'avg_confidence') and hasattr(trainer.avg_confidence, 'detach'):
-                            conf_val = trainer.avg_confidence.detach().cpu().item()
-                            metrics['conf'] = f"{conf_val:4.2f}"
-                        
-                        # Update postfix with available metrics.
-                        if metrics:
-                            pbar.set_postfix(metrics, refresh=False)
-
-                        # Update progress bar position.
-                        if hasattr(trainer, 'batch_idx'):
-                            current_batch = trainer.batch_idx + 1
-                            increment = current_batch - current_progress
-
-                            if increment > 0:
-                                # Ensure we don't exceed total.
-                                increment = min(
-                                    increment, num_batchs - current_progress
-                                )
-                                pbar.update(increment)
-                                current_progress = current_batch
-
-                    except (AttributeError, RuntimeError) as e:
-                        # Handle cases where tensors might
-                        # not be available yet.
-                        pbar.write("Error: %s" % (str(e),))
-
-                # Yield control to event loop.
-                # 0.05s is a good balance between responsiveness and CPU usage.
-                await asyncio.sleep(0.01)
-        
-        finally:
-            # Ensure progress bar is closed when monitoring ends.
-            if pbar is not None:
-                pbar.close()
-            LOGGER.info("Training monitoring completed.")
-
-    async def run_async_process():
-        """Run both tasks concurrently and handle results."""
-        # Create tasks
-        train_task = asyncio.create_task(train())
-        monitor_task = asyncio.create_task(monitoring())
-
-        # Wait for both to complete
-        results = await train_task
-        await monitor_task  # Ensure monitoring finishes cleanly
-        return results
-
-    # Run the async process and return results.
-    train_results, test_results = asyncio.run(run_async_process())
+    train_results, test_results = trainer.execute()
     return train_results, test_results
 
 
