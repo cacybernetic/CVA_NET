@@ -317,6 +317,10 @@ def _get_argument():
     parser.add_argument('--dropout', type=float, default=0.5)
     parser.add_argument('--class-names', nargs='+', type=str, default=[])
     parser.add_argument(
+        '-nc', '--num-classes', type=int, default=1000,
+        help="The number of the classes."
+    )
+    parser.add_argument(
         '-m', '--model', type=str, default='outputs/saved_model',
         help="The path to model directory."
     )
@@ -345,8 +349,7 @@ def main() -> None:
         model_config.img_size = args.image_size
         model_config.num_channels = args.num_channels
         model_config.class_names = args.class_names
-        model_config.num_classes = len(args.class_names) if args.class_names \
-            else 1000
+        model_config.num_classes = args.num_classes
         model_config.dropout = args.dropout
         model, _ = ModelFactory.build(model_config)
         model_repository = ModelRepository(args.model)

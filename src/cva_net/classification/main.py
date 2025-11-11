@@ -15,7 +15,7 @@ from .trainer import fit
 logging.basicConfig(
     level=logging.INFO,
     # format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    format='\033[95m%(asctime)s\033[0m - [%(levelname)s] - %(message)s',
+    format='\033[96m%(asctime)s\033[0m - [%(levelname)s] - %(message)s',
     handlers=[
         logging.FileHandler("classification.log"),
         logging.StreamHandler()
@@ -170,6 +170,7 @@ def train() -> None:
     else:
         ret = _load_model_from_file(model_folder)
         model, model_config, model_repository, model_summary = ret
+        model_config.class_names = class_names
     LOGGER.info("Model config: " + repr(model_config))
     LOGGER.info("Model instance: \n" + str(model))
     model.eval()
