@@ -779,6 +779,8 @@ def main() -> None:
             if idx >= 3:
                 break
         LOGGER.info("class_names: " + str(class_names))
+        LOGGER.info("class_names: " + str(len(class_names)) + " classes.")
+
         ds_reader.close()
 
     sys.exit(0)

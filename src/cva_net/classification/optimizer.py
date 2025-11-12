@@ -340,7 +340,7 @@ def _build_optimizer(args) -> None:
     
     output_dir = Path(args.output if args.output is not None else './')
     layers_config = Path(args.layers_config) if args.layers_config is not None \
-          else None
+        else None
     model_dir = Path(args.model)
 
     ## Openning and loading the config file.

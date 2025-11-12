@@ -285,7 +285,7 @@ class ModelFactory:
         config.__dict__.update(kwargs)
         model = AlexNet(
             image_size=config.img_size, num_channels=config.num_channels,
-            num_classes=config.num_classes
+            num_classes=config.num_classes, dropout=config.dropout
         )
         model.apply(initialize_weights)
         return model, config
@@ -355,22 +355,17 @@ def main() -> None:
         model_repository = ModelRepository(args.model)
         model_repository.save(model, model_config)
 
-        model.eval()
-        with torch.no_grad():
-            _, model_it = print_model_summary(
-                model, config=model_config, batch_size=args.batch_size
-            )
-            LOGGER.info("Encoder inference time %.3f sec." % (model_it,))
-
     elif args.action == 'print':
         model_repository = ModelRepository(args.model)
         model, model_config = ModelFactory.load(model_repository)
 
-        model.eval()
-        with torch.no_grad():
-            _, model_it = print_model_summary(
-                model, config=model_config, batch_size=args.batch_size
-            )
-            LOGGER.info("Encoder inference time %.3f sec." % (model_it,))
+    LOGGER.info("Model config: " + repr(model_config))
+    LOGGER.info("Model modules: " + str(model))
+    model.eval()
+    with torch.no_grad():
+        _, model_it = print_model_summary(
+            model, config=model_config, batch_size=args.batch_size
+        )
+        LOGGER.info("Encoder inference time %.3f sec." % (model_it,))
 
     sys.exit(0)
