@@ -318,6 +318,8 @@ def _load_model_from_file(model_dir):
         ### Import the right implementation of the model component.
         if model_arch == 'AlexNet':
             from cva_net.alexnet import ModelRepository, ModelFactory
+        elif model_arch == 'ResNet18':
+            from cva_net.resnet18 import ModelRepository, ModelFactory
         else:
             raise NotImplementedError(
                 "The model architecture named `%s` is not implemented yet."
