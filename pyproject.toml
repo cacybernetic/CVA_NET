@@ -31,6 +31,7 @@ where = ["src"]
 [project.scripts]
 alexnet_model = "cva_net.alexnet.model:main"
 resnet18_model = "cva_net.resnet18.model:main"
+resnet50_model = "cva_net.resnet50.model:main"
 cls_dataset = "cva_net.classification.dataset:main"
 cls_data_split = "cva_net.classification.dsplit:main"
 cls_data_merge = "cva_net.classification.data_merge:main"
