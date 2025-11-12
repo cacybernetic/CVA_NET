@@ -665,8 +665,8 @@ class Trainer:
         confidences = results[1]
         ## Metric calculation.
         accuracy_score = _accuracy_score(predictions, targets)
-        prediction_score = _precision_score(predictions, targets)
-        recall_score = _recall_score(predictions, targets)
+        prediction_score = _precision_score(predictions, targets, 'macro')
+        recall_score = _recall_score(predictions, targets, 'macro')
         return dict(
             accuracy_score=accuracy_score, precision_score=prediction_score,
             recall_score=recall_score,
