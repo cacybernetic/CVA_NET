@@ -707,7 +707,7 @@ class Trainer:
         results.update(dict(loss=loss_value))
         return results, confs
 
-    def get_step_progress_iterator(self) -> tqdm:
+    def get_progress_iterator(selfbarm:
         desc = ''
         unit = ''
         total = None
@@ -851,7 +851,7 @@ class Trainer:
             self.step = "train"
             self.num_batchs = self.num_train_batchs
             if self._verbose:
-                self.pbar = self.get_step_progress_iterator()
+                self.pbar = self.get_progress_bar()
 
             results = self.train(self.train_loader)
             self.train_result += results
@@ -871,7 +871,7 @@ class Trainer:
             self.step = "val"
             self.num_batchs = self.num_val_batchs
             if self._verbose:
-                self.pbar = self.get_step_progress_iterator()
+                self.pbar = self.get_progress_bar()
 
             results = self.eval(self.val_loader)
             self.val_result += results
@@ -895,7 +895,7 @@ class Trainer:
         self.step = 'test'
         self.num_batchs = self.num_test_batchs
         if self._verbose:
-            self.pbar = self.get_step_progress_iterator()
+            self.pbar = self.get_progress_bar()
 
         results = self.eval(self.test_loader)
         self.test_result += results
