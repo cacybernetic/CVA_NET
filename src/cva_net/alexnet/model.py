@@ -285,7 +285,7 @@ class ModelFactory:
         config.__dict__.update(kwargs)
         model = AlexNet(
             image_size=config.img_size, num_channels=config.num_channels,
-            num_classes=config.num_classes
+            num_classes=config.num_classes, dropout=config.dropout
         )
         model.apply(initialize_weights)
         return model, config
