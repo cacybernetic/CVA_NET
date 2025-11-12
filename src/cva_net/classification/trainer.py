@@ -707,7 +707,7 @@ class Trainer:
         results.update(dict(loss=loss_value))
         return results, confs
 
-    def get_progress_iterator(selfbarm:
+    def get_progress_bar(self):
         desc = ''
         unit = ''
         total = None
@@ -732,11 +732,14 @@ class Trainer:
         return iterator
 
     def _result_json_format(self, **metric: t.Dict[str, torch.Tensor]) -> None:
-        return {
-            name: ("%6.3f" if 'loss' not in name else "%7.4f")
-                  % (value.detach().cpu().item(),)
-            for name, value in metric.items()
-        }
+        json_metric = {}
+        for name, value in metric.items():
+            if 'loss' in name:
+                json_metric[name] = "%7.4f" % (value,)
+            elif 'score' in name:
+                value = value * 100.0
+                json_metric[name] = "%5.1f%%" % (value,)
+        return json_metric
 
     def train(self, data_loader) -> t.Dict[str, torch.Tensor]:
         total_loss = torch.tensor(0.0, device=self.device)
