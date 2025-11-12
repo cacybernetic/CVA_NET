@@ -734,11 +734,14 @@ class Trainer:
     def _result_json_format(self, **metric: t.Dict[str, torch.Tensor]) -> None:
         json_metric = {}
         for name, value in metric.items():
+            value = value.detach().cpu().item()
             if 'loss' in name:
                 json_metric[name] = "%7.4f" % (value,)
-            elif 'score' in name:
+            elif 'score' in name or 'confidence' in name:
                 value = value * 100.0
                 json_metric[name] = "%5.1f%%" % (value,)
+            else:
+            	json_metric[name] = "%.3f" % (value,)
         return json_metric
 
     def train(self, data_loader) -> t.Dict[str, torch.Tensor]:
