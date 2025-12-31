@@ -98,6 +98,15 @@ class JEPATrainer:
         # Create empty history;
         self._history = History()
 
+    def get_model(self) -> JEPA:
+        return self._model
+
+    def get_optimizer(self) -> Optimizer:
+        return self._optimizer
+
+    def get_scheduler(self) -> LRScheduler:
+        return self._scheduler
+
     def state_dict(self) -> Dict[str, Any]:
         return {
             'best_val_loss': self._best_val_loss,
@@ -112,7 +121,9 @@ class JEPATrainer:
         self._history.load_state_dict(state_dict['history'])
 
     def train_epoch(self):
-        """Training function on one epoch."""
+        """
+        Training function on one epoch.
+        """
         self._model.train()
         total_loss = 0
         total_mse = 0
