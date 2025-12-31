@@ -1,6 +1,10 @@
 import json
 from typing import Dict, Any
 import torch
+from cva_net.alexnet.jepa import repository as jepa_repos
+from cva_net.alexnet.jepa.training.optimizer import repository as optimizer_repos
+from cva_net.alexnet.jepa.training.optimizer.lr_scheduler import repository as scheduler_repos
+from .model import JEPATrainer, Config
 
 
 def _write_json_file(data_dict: Dict[str, Any], file_path: str, encoding: str='utf-8', indent: int=2) -> None:
@@ -15,6 +19,6 @@ def _read_json_file(file_path: str, encoding: str='utf-8') -> Dict[str, Any]:
         return config_data_dict
 
 
-def save() -> Dict[str, str]:
+def save(model: JEPATrainer, config: Config, dir_path: str, encoding: str='utf-8') -> Dict[str, str]:
     pass
 
