@@ -1,7 +1,6 @@
 from typing import Union, Dict, Any
-
+from dataclasses import dataclass
 import torch
-from torch import nn
 from torch.optim import Optimizer, AdamW
 from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import Dataset, DataLoader
@@ -10,6 +9,18 @@ from cva_net.alexnet.jepa import repository as jepa_repos
 from .loss_fn import compute_loss
 from .monitor import Monitor
 from .history import History
+
+
+@dataclass
+class Config:
+    batch_size: int = 32
+    gradient_accumulation: int = 1
+    num_workers: int = 2
+    amp: bool = True
+    device: str = 'cpu'
+    output_dir: str = 'alexnet-jepa'
+    checkpoint_dir: str = 'jepa-ckpts'
+    best_model_dir: str = 'best'
 
 
 class JEPATrainer:
@@ -27,6 +38,7 @@ class JEPATrainer:
         weight_decay: float=0.005,
         scheduler_max_iter: int=10,
         num_workers: int=2,
+        amp: bool=True,
         device: Union[str, torch.device]='cpu',
         checkpoint_dir: str='jepa-ckpts/',
         output_dir: str='alexnet-jepa/',
@@ -46,6 +58,7 @@ class JEPATrainer:
         self._weight_decay = weight_decay
         self._scheduler_max_iter = scheduler_max_iter
         self._num_workers = num_workers
+        self._amp = amp
         self._device = device
         self._checkpoint_dir = checkpoint_dir
         self._output_dir = output_dir
