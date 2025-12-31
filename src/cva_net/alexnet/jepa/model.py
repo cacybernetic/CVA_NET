@@ -1,9 +1,10 @@
 import copy
+from typing import Tuple
 from dataclasses import dataclass
 import numpy as np
 import torch
 from torch import nn
-from cva_net.alexnet.backbone.model import AlexNetBackbone
+from cva_net.alexnet.backbone.model import AlexNetBackbone, Config as AlexNetBackboneConfig
 
 
 @dataclass
@@ -12,6 +13,7 @@ class Config:
     ema_tau_min: float = 0.996
     ema_tau_max: float = 0.999
     ema_total_steps: int = 1000
+    backbone: AlexNetBackboneConfig = AlexNetBackboneConfig()
 
 
 class JEPA(nn.Module):
@@ -45,7 +47,7 @@ class JEPA(nn.Module):
             nn.Linear(latent_dim * 2, latent_dim),
             nn.LayerNorm(latent_dim),)
 
-    def _get_ema_tau(self):
+    def _get_ema_tau(self) -> float:
         """
         Calcul cosinus pour le tau de l'EMA.
         """
@@ -55,7 +57,7 @@ class JEPA(nn.Module):
         self.ema_steps += 1
         return self.ema_tau_min + (self.ema_tau_max - self.ema_tau_min) * cos_schedule
 
-    def update_target_encoder(self):
+    def update_target_encoder(self) -> None:
         """
         Mise à jour EMA du target encoder.
         """
@@ -64,11 +66,11 @@ class JEPA(nn.Module):
             for online_param, target_param in zip(self.context_encoder.parameters(), self.target_encoder.parameters()):
                 target_param.data = tau * target_param.data + (1 - tau) * online_param.data
 
-    def forward(self, context_view, target_view):
-        # Encoder les vues.
+    def forward(self, context_view, target_view) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Encoder les vues;
         context_emb = self.context_encoder(context_view)
         with torch.no_grad():
             target_emb = self.target_encoder(target_view)
-        # Prédire la représentation target depuis context.
+        # Prédire la représentation target depuis context;
         predicted_target = self.predictor(context_emb)
         return predicted_target, target_emb, context_emb

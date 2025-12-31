@@ -1,24 +1,28 @@
 from typing import Tuple
 from torch.utils.data import Dataset
+
+from cva_net.alexnet.jepa.model import JEPA
+from cva_net.alexnet.jepa.factory import jepa
 from .model import JEPATrainer, Config as JEPATrainerConfig
-from cva_net.alexnet.jepa.model import JEPA, Config as JEPAConfig
-from .optimizer.model import Optimizer, Config as OptimizerConfig
-from .optimizer.lr_scheduler.model import LRScheduler, Config as LRSchedulerConfig
+from .optimizer.model import Optimizer
+from .optimizer.lr_scheduler.model import LRScheduler
 
 
 def jepa_trainer(
-    model: JEPA,
-    model_config: JEPAConfig,
     train_dataset: Dataset,
     val_dataset: Dataset,
+    model: JEPA=None,
     optimizer: Optimizer=None,
-    optimizer_config: OptimizerConfig=None,
     scheduler: LRScheduler=None,
-    scheduler_config: LRSchedulerConfig=None,
     config: JEPATrainerConfig=None,
     **kwargs
 ) -> Tuple[JEPATrainer, JEPATrainerConfig]:
     if config is None:
         config = JEPATrainerConfig()
     config.__dict__.update(kwargs)
-    pass
+    if model is None:
+        model, _ = jepa(config.model)
+    instance = JEPATrainer(
+        model=model, train_dataset=train_dataset, val_dataset=val_dataset, optimizer=optimizer, scheduler=scheduler,
+        config=config)
+    return instance, config
