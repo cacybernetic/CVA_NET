@@ -28,6 +28,18 @@ class Monitor:
     def log(text: str) -> None:
         LOGGER.info(text)
 
+    @staticmethod
+    def info(text: str) -> None:
+        LOGGER.info(text)
+
+    @staticmethod
+    def warning(text: str) -> None:
+        LOGGER.warning(text)
+
+    @staticmethod
+    def error(text: str) -> None:
+        LOGGER.error(text)
+
     def close_pbar(self) -> None:
         if self._pbar is None:
             return

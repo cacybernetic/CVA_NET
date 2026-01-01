@@ -4,14 +4,9 @@ import pathlib
 import shutil
 from typing import Tuple, List, Optional
 from torch import nn
-from cva_net.alexnet.jepa.model import JEPA, Config as JEPAConfig
-from .model import JEPATrainer, JEPATrainerConfig
-from .optimizer.model import Optimizer, Config as OptimizerConfig
-from .optimizer.lr_scheduler.model import LRScheduler, Config as LRSchedulerConfig
-from .repository import save as save_training, load as load_training
-from cva_net.alexnet.jepa import repository as jepa_repos
-from .optimizer import repository as optim_repos
-from .optimizer.lr_scheduler import repository as lr_scheduler_repos
+from .model import JEPATrainer, Config
+from .repository import save, load
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,29 +28,12 @@ class CheckpointManager:
         self.checkpoint_dir = checkpoint_dir
         self.max_to_keep = max_to_keep
 
-    def save(
-        self,
-        epoch: int,
-        model: JEPA,
-        model_config: JEPAConfig,
-        optimizer: Optimizer,
-        optimizer_config: OptimizerConfig,
-        scheduler: LRScheduler,
-        scheduler_config: LRSchedulerConfig,
-        trainer: JEPATrainer,
-        trainer_config: JEPATrainerConfig,
-    ) -> str:
+    def save(self, epoch: int, trainer: JEPATrainer, trainer_config: Config) -> str:
         """
         Sauvegarde un checkpoint pour une epoch donnee et nettoie
         les anciens checkpoints si necessaire.
 
-        :param epoch: Numero de l'epoch a sauvegarder
-        :param model: The instance of the model.
-        :param model_config: The model config.
-        :param optimizer: The instance of the optimizer.
-        :param optimizer_config: The optimizer config.
-        :param scheduler: The instance of the scheduler.
-        :param scheduler_config: The scheduler config.
+        :param epoch: Numero de l'epoch a sauvegarder.
         :param trainer: The instance of the trainer.
         :param trainer_config: The trainer config.
         :returns: Chemin vers le dossier de checkpoint cree.
@@ -63,15 +41,13 @@ class CheckpointManager:
         checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch}")
         pathlib.Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
         # Sauvegarder via les repositories
-        jepa_repos.save(dir_path=checkpoint_path)
-        self.optimizer_repository.save(checkpoint_path)
-        self.trainer_repository.save(checkpoint_path)
+        save(trainer, trainer_config, dir_path=checkpoint_path, encoding='utf-8')
         LOGGER.debug(f"Checkpoint sauvegarde: {checkpoint_path}")
         # Nettoyer les anciens checkpoints
         self._cleanup_old_checkpoints()
         return checkpoint_path
 
-    def load(self, epoch: int) -> Tuple[nn.Module, Optimizer]:
+    def load(self, epoch: int) -> Tuple[JEPATrainer, Config]:
         """
         Charge un checkpoint pour une epoch donnee.
 
@@ -82,11 +58,9 @@ class CheckpointManager:
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Checkpoint non trouve: {checkpoint_path}")
         # Charger via les repositories
-        model = self.model_repository.load(checkpoint_path)
-        optimizer = self.optimizer_repository.load(checkpoint_path)
-        trainer = self.trainer_repository.load(checkpoint_path)
+        trainer, config = load(checkpoint_path, encoding='utf-8')
         LOGGER.info(f"Checkpoint charge: {checkpoint_path}")
-        return model, optimizer, trainer
+        return trainer, config
 
     def get_latest_checkpoint(self) -> Optional[int]:
         """

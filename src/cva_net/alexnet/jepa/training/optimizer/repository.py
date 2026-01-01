@@ -8,13 +8,7 @@ from .model import Optimizer, Config
 from .factory import optimizer
 
 
-def save(
-    model: Optimizer,
-    config: Config,
-    dir_path: str,
-    device_type: str=None,
-    encoding: str='utf-8',
-) -> Dict[str, str]:
+def save(model: Optimizer, config: Config, dir_path: str, encoding: str='utf-8') -> Dict[str, str]:
     assert not dir_path, (
         "The directory path containing the model weights and its configs is not provided. "
         "NoneType/blank string provided instead.")
@@ -22,16 +16,8 @@ def save(
         raise ValueError("The instance of the model or its config is none (NoneType). ")
     model_file = os.path.join(dir_path, 'weights.pth')
     config_file = os.path.join(dir_path, 'config.json')
-    # Move weight into CPU if it not is in CPU;
-    weights = model.state_dict()
-    if not device_type or device_type != 'cpu':
-        cpu_weights = {}
-        for name, weight in weights.items():
-            weight = weight.cpu()
-            cpu_weights[name] = weight
-        weights = cpu_weights
     # Save weights model into file;
-    torch.save(weights, model_file)
+    torch.save(model.state_dict(), model_file)
     # Save config model into file;
     with open(config_file, mode='w', encoding=encoding) as f:
         config_json_data = json.dumps(config.__dict__, indent=2)

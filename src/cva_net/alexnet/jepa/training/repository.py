@@ -1,7 +1,6 @@
 import os
 import json
 from typing import Dict, Any, Tuple
-from torch.utils.data import Dataset
 from cva_net.alexnet.jepa import repository as jepa_repos
 from cva_net.alexnet.jepa.training.factory import jepa_trainer
 from cva_net.alexnet.jepa.training.optimizer import repository as optimizer_repos
@@ -44,7 +43,7 @@ def save(trainer: JEPATrainer, config: Config, dir_path: str, encoding: str='utf
         "jepa_model_dir": jepa_model_dir,
     }
     # Save JEPA model;
-    results['jepa'] = jepa_repos.save(model, config.model, jepa_model_dir, encoding)  # noqa
+    results['jepa'] = jepa_repos.save(model, config.model, jepa_model_dir, config.device, encoding)  # noqa
     # Save optimizer;
     results['optimizer'] = optimizer_repos.save(optimizer, config.optimizer, optimizer_dir, encoding)  # noqa
     # Save scheduler;
@@ -57,12 +56,7 @@ def save(trainer: JEPATrainer, config: Config, dir_path: str, encoding: str='utf
     return results
 
 
-def load(
-    dir_path: str,
-    train_dataset: Dataset,
-    val_dataset: Dataset,
-    encoding: str='utf-8'
-) -> Tuple[JEPATrainer, Config]:
+def load(dir_path: str, encoding: str='utf-8') -> Tuple[JEPATrainer, Config]:
     assert not dir_path, (
         "The directory path containing the training state and its configs is not provided. "
         "NoneType/blank string provided instead.")

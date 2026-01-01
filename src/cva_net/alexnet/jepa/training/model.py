@@ -1,5 +1,5 @@
 import os
-from typing import Union, Dict, Any
+from typing import  Dict, Any
 from dataclasses import dataclass
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -16,6 +16,7 @@ from cva_net.alexnet.jepa.model import JEPA, Config as JEPAConfig
 from .loss_fn import compute_loss
 from .monitor import Monitor
 from .history import History
+from .checkpoint import CheckpointManager
 
 
 @dataclass
@@ -38,8 +39,8 @@ class JEPATrainer:
     def __init__(
         self,
         model: JEPA,
-        train_dataset: Dataset,
-        val_dataset: Dataset,
+        train_dataset: Dataset=None,
+        val_dataset: Dataset=None,
         optimizer: Optimizer=None,
         scheduler: LRScheduler=None,
         config: Config=None,
@@ -59,17 +60,30 @@ class JEPATrainer:
         self._train_dataset_loader: DataLoader = None
         self._val_dataset_loader: DataLoader = None
         self._history: History = None
+        self._checkpoint_manager: CheckpointManager = None
         self._best_val_loss = float('inf')
+        self._compiled = False
+
+    def train_dataset(self, dataset: Dataset) -> None:
+        self._train_dataset = dataset
+
+    def val_dataset(self, dataset: Dataset) -> None:
+        self._val_dataset = dataset
+
+    def checkpoint(self, checkpoint_man: CheckpointManager) -> None:
+        self._checkpoint_manager = checkpoint_man
 
     def compile(self) -> None:
+        assert self._train_dataset is not None, (
+            "The training dataset is not provided. Provide its calling train_dataset() method.")
+        assert self._val_dataset is not None, (
+            "The validation dataset is not provided. Provide its calling val_dataset() method.")
         self._mon = Monitor()
         # Device setting;
         self._device = torch.device(self._config.device)
         # Create dataloaders;
         use_pin_memory = False
-        if isinstance(self._device, str) and self._device.startswith('cuda'):
-            use_pin_memory = True
-        elif self._device.type == 'gpu':
+        if self._device.type == 'gpu':
             use_pin_memory = True
         self._train_dataset_loader = DataLoader(
             self._train_dataset, batch_size=self._config.batch_size, shuffle=True, num_workers=self._config.num_workers,
@@ -96,7 +110,10 @@ class JEPATrainer:
             assert self._config.scheduler is not None, (
                 "The scheduler provided has no configuration provided (scheduler_config is None).")
         # Create empty history;
-        self._history = History()
+        if self._history is None:
+            self._history = History()
+        # Specify that all is ready;
+        self._compiled = True
 
     def get_model(self) -> JEPA:
         return self._model
@@ -215,16 +232,17 @@ class JEPATrainer:
             'cosine_loss': avg_cosine,
         }
 
-    def load_checkpoint(self) -> None:
-        pass
-
     def execute(self, num_epochs: int=1) -> History:
-        self.load_checkpoint()
+        assert self._compiled is True, (
+            "You must call the method called `compile()` in first, before call the `execute()` method.")
         # Training;
         self._mon.log(f"\n{'=' * 120}")
         self._mon.log(f"STARTING OF JEPA TRAINING - {num_epochs} EPOCHS")
         self._mon.log(f"{'=' * 120}\n")
-        start_epoch = self._history.count
+        if self._history.count > 0:
+            start_epoch = self._history.count
+        else:
+            start_epoch = 0
         for epoch in range(start_epoch, num_epochs):
             self._mon.log(f"\nEpoch {epoch + 1}/{num_epochs}")
             # train on one epoch;
@@ -251,4 +269,6 @@ class JEPATrainer:
                 jepa_repos.save(
                     self._model, self._config.model, dir_path=curr_best_model_dir, device_type=self._device.type)
                 self._mon.log("✓ Best model saved!")
+            if self._checkpoint_manager is not None:
+                self._checkpoint_manager.save(epoch, self, self._config)
         return self._history

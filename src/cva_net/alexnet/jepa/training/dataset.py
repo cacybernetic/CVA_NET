@@ -1,11 +1,13 @@
-import os
+# import os
 from torch.utils.data import Dataset as BaseDataset
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 
 
 class MultiViewTransform:
-    """Génère deux vues augmentées de la même image"""
+    """
+    Génère deux vues augmentées de la même image.
+    """
 
     def __init__(self, size=224):
         self.context_transform = transforms.Compose([
@@ -28,7 +30,9 @@ class MultiViewTransform:
 
 
 class CustomImageDataset(BaseDataset):
-    """Dataset personnalisé pour les images avec transformations multi-vues"""
+    """
+    Dataset personnalisé pour les images avec transformations multi-vues.
+    """
 
     def __init__(self, root_dir, transform=None):
         self.image_folder = ImageFolder(root_dir)
