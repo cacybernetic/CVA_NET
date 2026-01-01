@@ -3,7 +3,6 @@ import logging
 import pathlib
 import shutil
 from typing import Tuple, List, Optional
-from torch import nn
 from .model import JEPATrainer, Config
 from .repository import save, load
 
