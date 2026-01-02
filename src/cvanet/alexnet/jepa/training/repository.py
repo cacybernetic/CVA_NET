@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 from cvanet.alexnet.jepa import repository as jepa_repos
 from cvanet.alexnet.jepa.training.factory import jepa_trainer
 from cvanet.alexnet.jepa.training.optimizer import repository as optimizer_repos
@@ -23,64 +23,55 @@ def _read_json_file(file_path: str, encoding: str='utf-8') -> Dict[str, Any]:
         return config_data_dict
 
 
-def save(trainer: JEPATrainer, config: Config, dir_path: str, encoding: str='utf-8') -> Dict[str, Any]:
-    assert not dir_path, (
+def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> Dict[str, Any]:
+    assert config is not None, "The instance of the model or its config is none (NoneType)."
+    assert dir_path, (
         "The directory path containing the training state and its configs is not provided. "
         "NoneType/blank string provided instead.")
-    if trainer is None or config is None:
-        raise ValueError("The instance of the model or its config is none (NoneType). ")
     # Compose folder path;
-    config_file = os.path.join(dir_path, 'config.json')
-    model_file = os.path.join(dir_path, 'training.json')
+    config_file = os.path.join(dir_path, CONFIG_FILE_NAME)
     jepa_model_dir = os.path.join(dir_path, 'jepa')
     optimizer_dir = os.path.join(dir_path, 'optimizer')
     scheduler_dir = os.path.join(dir_path, 'scheduler')
-    # Retreive instances;
-    optimizer = trainer.optimizer
-    scheduler = trainer.scheduler
-    model = trainer.model
-    train_state_dict = trainer.state_dict()
-    results: Dict[str, Any] = {
-        "config_file": config_file,
-        "model_file": model_file,
-        "jepa_model_dir": jepa_model_dir,
-    }
-    # Save JEPA model;
-    results['jepa'] = jepa_repos.save(model, config.model, jepa_model_dir, config.device, encoding)  # noqa
+    results: Dict[str, Any] = {"trainer_config": config_file}
+    os.makedirs(dir_path, exist_ok=True)
+    # Save  model config;
+    results['model_config'] = jepa_repos.save_config(config.model, jepa_model_dir, encoding)  # noqa
     # Save optimizer;
-    results['optimizer'] = optimizer_repos.save(optimizer, config.optimizer, optimizer_dir, encoding)  # noqa
+    results['optimizer_config'] = optimizer_repos.save_config(config.optimizer, optimizer_dir, encoding)  # noqa
     # Save scheduler;
-    results['scheduler'] = scheduler_repos.save(scheduler, config.scheduler, scheduler_dir, encoding)  # noqa
+    results['scheduler_config'] = scheduler_repos.save_config(config.scheduler, scheduler_dir, encoding)  # noqa
     # Save the config of training model;
     config_data = {attr:val for attr, val in config.__dict__.items() if attr not in ('model', 'optimizer', 'scheduler')}
     _write_json_file(config_data, config_file, encoding)
-    # Save the training model;
-    _write_json_file(train_state_dict, model_file, encoding)
     return results
 
 
-def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> Dict[str, Any]:
+def save_data(trainer: JEPATrainer, dir_path: str, device_type: str=None, encoding: str='utf-8') -> Dict[str, Any]:
+    assert trainer is not None, "The instance of the model or its config is none (NoneType)."
     assert not dir_path, (
-        "The directory path containing the training configs is not provided. "
+        "The directory path containing the training state and its configs is not provided. "
         "NoneType/blank string provided instead.")
-    if config is None:
-        raise ValueError("The instance of the model config is none (NoneType). ")
     # Compose folder path;
-    config_file = os.path.join(dir_path, 'config.json')
+    model_file = os.path.join(dir_path, DATA_FILE_NAME)
     jepa_model_dir = os.path.join(dir_path, 'jepa')
     optimizer_dir = os.path.join(dir_path, 'optimizer')
     scheduler_dir = os.path.join(dir_path, 'scheduler')
+    results: Dict[str, Any] = {"trainer": model_file}
     # Retreive instances;
-    results: Dict[str, Any] = {"config_file": config_file}  # noqa
-    # Save JEPA model config;
-    results['jepa'] = jepa_repos.save_config(config.model, jepa_model_dir, encoding)  # noqa
-    # Save optimizer config;
-    results['optimizer'] = optimizer_repos.save_config(config.optimizer, optimizer_dir, encoding)  # noqa
-    # Save scheduler config;
-    results['scheduler'] = scheduler_repos.save_config(config.scheduler, scheduler_dir, encoding)  # noqa
-    # Save the config of training model;
-    config_data = {attr:val for attr, val in config.__dict__.items() if attr not in ('model', 'optimizer', 'scheduler')}
-    _write_json_file(config_data, config_file, encoding)
+    model = trainer.model
+    optimizer = trainer.optimizer
+    scheduler = trainer.scheduler
+    os.makedirs(dir_path, exist_ok=True)
+    # Save JEPA model;
+    results['model'] = jepa_repos.save_data(model, jepa_model_dir, device_type=device_type)  # noqa
+    # Save optimizer;
+    results['optimizer'] = optimizer_repos.save_data(optimizer, optimizer_dir, encoding)  # noqa
+    # Save scheduler;
+    results['scheduler'] = scheduler_repos.save_data(scheduler, scheduler_dir, encoding)  # noqa
+    # Save the training model;
+    train_state_dict = trainer.state_dict()
+    _write_json_file(train_state_dict, model_file, encoding)
     return results
 
 
@@ -124,20 +115,17 @@ def load_data(dir_path: str, config: Config, encoding: str='utf-8', trainer: JEP
     jepa_model_dir = os.path.join(dir_path, 'jepa')
     optimizer_dir = os.path.join(dir_path, 'optimizer')
     scheduler_dir = os.path.join(dir_path, 'scheduler')
-    # Load JEPA model;
-    model = jepa_repos.load_data(jepa_model_dir, config.model, encoding)
-    # Load Optimizer model;
-    optimizer = optimizer_repos.load_data(optimizer_dir, model, config.optimizer, encoding)
-    # Load scheduler model;
-    scheduler = scheduler_repos.load_data(scheduler_dir, optimizer, config.scheduler, encoding)
     # Load training state model;
     if trainer is None:
-        trainer, _ = jepa_trainer(model, optimizer, scheduler, config)
+        trainer, _ = jepa_trainer(config)
     if not os.path.isfile(model_file):
         raise FileNotFoundError("No such training state file at: %s" % (model_file,))
     state_dict = _read_json_file(model_file, encoding)
     trainer.load_state_dict(state_dict)
-    trainer.model = model
-    trainer.optimizer = optimizer
-    trainer.scheduler = scheduler
+    # Load JEPA model;
+    trainer.model = jepa_repos.load_data(jepa_model_dir, config.model, trainer.model)
+    # Load Optimizer model;
+    trainer.optimizer = optimizer_repos.load_data(optimizer_dir, config.optimizer,  trainer.optimizer, trainer.model)
+    # Load scheduler model;
+    trainer.scheduler = scheduler_repos.load_data(scheduler_dir, config.scheduler, trainer.scheduler, trainer.optimizer)
     return trainer

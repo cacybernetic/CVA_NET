@@ -32,6 +32,7 @@ def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> str:
     backbone_config_data = config.backbone
     model_config_data['backbone'] = backbone_config_data
     # Save state dict of model config into file;
+    os.makedirs(dir_path, exist_ok=True)
     _write_json_file(model_config_data, config_file, encoding=encoding)
     return config_file
 
@@ -51,6 +52,7 @@ def save_data(model: JEPA, dir_path: str, device_type: str=None) -> str:
             cpu_weights[name] = weight
         weights = cpu_weights
     # Save weights model into file;
+    os.makedirs(dir_path, exist_ok=True)
     torch.save(weights, model_file)
     return model_file
 
@@ -72,7 +74,7 @@ def load_config(dir_path: str, encoding: str='utf-8') -> Config:
     return config
 
 
-def load(dir_path: str, config: Config, model: JEPA=None) -> JEPA:
+def load_data(dir_path: str, config: Config, model: JEPA=None) -> JEPA:
     assert not dir_path, (
         "The directory path containing the model weights and its configs is not provided. "
         "NoneType/blank string provided instead.")

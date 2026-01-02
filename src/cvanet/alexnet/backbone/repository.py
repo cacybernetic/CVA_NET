@@ -15,6 +15,7 @@ def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> str:
         "NoneType/blank string provided instead.")
     # Save config model into file;
     config_file = os.path.join(dir_path, CONFIG_FILE_NAME)
+    os.makedirs(dir_path, exist_ok=True)
     with open(config_file, mode='w', encoding=encoding) as f:
         config_json_data = json.dumps(config.__dict__, indent='2')
         f.write(config_json_data)
@@ -23,6 +24,9 @@ def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> str:
 
 def save_data(model: AlexNetBackbone, dir_path: str, device_type: str=None) -> str:
     assert model is not None, "The instance of the model is none (NoneType)."
+    assert dir_path, (
+        "The directory path containing the model weights and its configs is not provided. "
+        "NoneType/blank string provided instead.")
     # Move weight into CPU if it not is in CPU;
     weights = model.state_dict()
     if not device_type or device_type != 'cpu':
@@ -33,6 +37,7 @@ def save_data(model: AlexNetBackbone, dir_path: str, device_type: str=None) -> s
         weights = cpu_weights
     # Save weights model into file;
     model_file = os.path.join(dir_path, DATA_FILE_NAME)
+    os.makedirs(dir_path, exist_ok=True)
     torch.save(weights, model_file)
     return model_file
 
