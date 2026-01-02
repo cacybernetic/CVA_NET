@@ -73,7 +73,7 @@ class JEPATrainer:
         if not epoch:
             return None
         self._mon.log("Checkpoint found.")
-        self._config = self._checkpoint_manager.load_config()
+        self._config = self._checkpoint_manager.load_config(epoch)
         self._start_epoch_idx = epoch
         self._checkpoint_loaded = True
         return epoch
@@ -135,7 +135,7 @@ class JEPATrainer:
         self._mon.log("Scheduler:")
         self._mon.log("  Config: " + repr(self.scheduler))
         if self._checkpoint_loaded:
-            self._checkpoint_manager.load_data(self._config, self, self._device)
+            self._checkpoint_manager.load_data(self._start_epoch_idx, self._config, self)
         # Specify that all is ready;
         self._compiled = True
 
@@ -188,6 +188,7 @@ class JEPATrainer:
             total_loss += loss.item()
             total_mse += mse.item()
             total_cosine += cosine.item()
+            ## Calculate average;
             avg_loss = total_loss / num_batchs
             avg_mse = total_mse / num_batchs
             avg_cosine = total_cosine / num_batchs
@@ -278,9 +279,11 @@ class JEPATrainer:
             if val_results['total_loss'] < self._best_val_loss:
                 self._best_val_loss = val_results['total_loss']
                 curr_best_model_dir = os.path.join(self._config.output_dir, f"{self._config.best_model_dir}_{epoch:0d}")
-                jepa_repos.save(
-                    self.model, self._config.model, dir_path=curr_best_model_dir, device_type=self._device.type)
+                jepa_repos.save_config(self._config.model, dir_path=curr_best_model_dir)
+                jepa_repos.save_data(self.model, dir_path=curr_best_model_dir, device_type=self._device.type)
                 self._mon.log("✓ Best model saved!")
+            # Make a checkpoint;
             if self._checkpoint_manager is not None:
-                self._checkpoint_manager.save(epoch, self, self._config)
+                self._checkpoint_manager.save_config(epoch, self._config)
+                self._checkpoint_manager.save_data(epoch, self, device_type=self._device.type)
         return self._history

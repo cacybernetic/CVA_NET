@@ -2,9 +2,9 @@ import os
 import logging
 import pathlib
 import shutil
-from typing import Tuple, List, Optional
+from typing import List, Optional, Dict, Any
 from .model import JEPATrainer, Config
-from .repository import save, load
+from .repository import save_config, save_data, load_config, load_data
 
 
 LOGGER = logging.getLogger(__name__)
@@ -27,26 +27,44 @@ class CheckpointManager:
         self.checkpoint_dir = checkpoint_dir
         self.max_to_keep = max_to_keep
 
-    def save(self, epoch: int, trainer: JEPATrainer, trainer_config: Config) -> str:
+    def save_config(self, epoch: int, trainer_config: Config) ->  Dict[str, Any]:
         """
         Sauvegarde un checkpoint pour une epoch donnee et nettoie
         les anciens checkpoints si necessaire.
 
         :param epoch: Numero de l'epoch a sauvegarder.
-        :param trainer: The instance of the trainer.
         :param trainer_config: The trainer config.
         :returns: Chemin vers le dossier de checkpoint cree.
         """
         checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch}")
         pathlib.Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
         # Sauvegarder via les repositories
-        save(trainer, trainer_config, dir_path=checkpoint_path, encoding='utf-8')
+        results = save_config(trainer_config, checkpoint_path, encoding='utf-8')
         LOGGER.debug(f"Checkpoint sauvegarde: {checkpoint_path}")
         # Nettoyer les anciens checkpoints
         self._cleanup_old_checkpoints()
-        return checkpoint_path
+        return results
 
-    def load(self, epoch: int) -> Tuple[JEPATrainer, Config]:
+    def save_data(self, epoch: int, trainer: JEPATrainer, device_type: str=None) ->  Dict[str, Any]:
+        """
+        Sauvegarde un checkpoint pour une epoch donnee et nettoie
+        les anciens checkpoints si necessaire.
+
+        :param epoch: Numero de l'epoch a sauvegarder.
+        :param trainer: The instance of the trainer.
+        :param device_type: The device type name.
+        :returns: Chemin vers le dossier de checkpoint cree.
+        """
+        checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch}")
+        pathlib.Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
+        # Sauvegarder via les repositories;
+        results = save_data(trainer, checkpoint_path, device_type=device_type, encoding='utf-8')
+        LOGGER.debug(f"Checkpoint sauvegarde: {checkpoint_path}")
+        # Nettoyer les anciens checkpoints;
+        self._cleanup_old_checkpoints()
+        return results
+
+    def load_config(self, epoch: int) -> Config:
         """
         Charge un checkpoint pour une epoch donnee.
 
@@ -56,10 +74,27 @@ class CheckpointManager:
         checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch}")
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Checkpoint non trouve: {checkpoint_path}")
-        # Charger via les repositories
-        trainer, config = load(checkpoint_path, encoding='utf-8')
+        # Charger via les repositories;
+        config = load_config(checkpoint_path, encoding='utf-8')
         LOGGER.info(f"Checkpoint charge: {checkpoint_path}")
-        return trainer, config
+        return config
+
+    def load_data(self, epoch: int, config: Config, trainer: JEPATrainer) -> JEPATrainer:
+        """
+        Charge un checkpoint pour une epoch donnee.
+
+        :param epoch: Numero de l'epoch a charger.
+        :param config: The training config.
+        :param trainer: The instance of the trainer.
+        :returns: The same instance of the trainer.
+        """
+        checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch}")
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Checkpoint non trouve: {checkpoint_path}")
+        # Charger via les repositories;
+        load_data(checkpoint_path, config, encoding='utf-8', trainer=trainer)
+        LOGGER.info(f"Checkpoint charge: {checkpoint_path}")
+        return trainer
 
     def get_latest_checkpoint(self) -> Optional[int]:
         """
