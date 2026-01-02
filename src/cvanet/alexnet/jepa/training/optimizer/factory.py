@@ -43,4 +43,4 @@ def optimizer(model: nn.Module, config: Config=None, **kwargs) -> Tuple[Optimize
     elif not config.optimizer or config.optimizer == 'AdamW':
         instance = AdamW(
             params=params_list, lr=config.lr0, weight_decay=config.weight_decay, eps=config.eps, betas=config.betas)
-    return instance
+    return instance, config

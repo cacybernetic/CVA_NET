@@ -3,8 +3,8 @@ import logging
 import pathlib
 import shutil
 from typing import List, Optional, Dict, Any
-from .model import JEPATrainer, Config
-from .repository import save_config, save_data, load_config, load_data
+# from .model import JEPATrainer, Config
+# from .repository import save_config, save_data, load_config, load_data
 
 
 LOGGER = logging.getLogger(__name__)
@@ -27,7 +27,13 @@ class CheckpointManager:
         self.checkpoint_dir = checkpoint_dir
         self.max_to_keep = max_to_keep
 
-    def save_config(self, epoch: int, trainer_config: Config) ->  Dict[str, Any]:
+        from .repository import save_config, save_data, load_config, load_data
+        self._trainer_save_config = save_config
+        self._trainer_save_data = save_data
+        self._trainer_load_config = load_config
+        self._trainer_load_data = load_data
+
+    def save_config(self, epoch: int, trainer_config: 'Config') ->  Dict[str, Any]:
         """
         Sauvegarde un checkpoint pour une epoch donnee et nettoie
         les anciens checkpoints si necessaire.
@@ -38,14 +44,14 @@ class CheckpointManager:
         """
         checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch}")
         pathlib.Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
-        # Sauvegarder via les repositories
-        results = save_config(trainer_config, checkpoint_path, encoding='utf-8')
+        # Sauvegarder via les repositories;
+        results = self._trainer_save_config(trainer_config, checkpoint_path, encoding='utf-8')
         LOGGER.debug(f"Checkpoint sauvegarde: {checkpoint_path}")
         # Nettoyer les anciens checkpoints
         self._cleanup_old_checkpoints()
         return results
 
-    def save_data(self, epoch: int, trainer: JEPATrainer, device_type: str=None) ->  Dict[str, Any]:
+    def save_data(self, epoch: int, trainer: 'JEPATrainer', device_type: str=None) ->  Dict[str, Any]:
         """
         Sauvegarde un checkpoint pour une epoch donnee et nettoie
         les anciens checkpoints si necessaire.
@@ -58,13 +64,13 @@ class CheckpointManager:
         checkpoint_path = os.path.join(self.checkpoint_dir, f"checkpoint_epoch_{epoch}")
         pathlib.Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
         # Sauvegarder via les repositories;
-        results = save_data(trainer, checkpoint_path, device_type=device_type, encoding='utf-8')
+        results = self._trainer_save_data(trainer, checkpoint_path, device_type=device_type, encoding='utf-8')
         LOGGER.debug(f"Checkpoint sauvegarde: {checkpoint_path}")
         # Nettoyer les anciens checkpoints;
         self._cleanup_old_checkpoints()
         return results
 
-    def load_config(self, epoch: int) -> Config:
+    def load_config(self, epoch: int) -> 'Config':
         """
         Charge un checkpoint pour une epoch donnee.
 
@@ -75,11 +81,11 @@ class CheckpointManager:
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Checkpoint non trouve: {checkpoint_path}")
         # Charger via les repositories;
-        config = load_config(checkpoint_path, encoding='utf-8')
+        config = self._trainer_load_config(checkpoint_path, encoding='utf-8')
         LOGGER.info(f"Checkpoint charge: {checkpoint_path}")
         return config
 
-    def load_data(self, epoch: int, config: Config, trainer: JEPATrainer) -> JEPATrainer:
+    def load_data(self, epoch: int, config: 'Config', trainer: 'JEPATrainer') -> 'JEPATrainer':
         """
         Charge un checkpoint pour une epoch donnee.
 
@@ -92,7 +98,7 @@ class CheckpointManager:
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Checkpoint non trouve: {checkpoint_path}")
         # Charger via les repositories;
-        load_data(checkpoint_path, config, encoding='utf-8', trainer=trainer)
+        self._trainer_load_data(checkpoint_path, config, encoding='utf-8', trainer=trainer)
         LOGGER.info(f"Checkpoint charge: {checkpoint_path}")
         return trainer
 

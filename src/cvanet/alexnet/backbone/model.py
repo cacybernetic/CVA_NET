@@ -31,7 +31,7 @@ class AlexNetBackbone(nn.Module):
             nn.MaxPool2d(kernel_size=3, stride=2),
         )
         self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
-        self.fc = nn.Linear(256, latent_dim)
+        self.fc = nn.Linear(256*6*6, latent_dim)
         self.ln = nn.LayerNorm(latent_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

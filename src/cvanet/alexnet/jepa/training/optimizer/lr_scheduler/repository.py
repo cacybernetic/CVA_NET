@@ -15,6 +15,7 @@ def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> str:
         "The directory path containing the scheduler weights and its configs is not provided. "
         "NoneType/blank string provided instead.")
     config_file = os.path.join(dir_path, CONFIG_FILE_NAME)
+    os.makedirs(dir_path, exist_ok=True)
     # Save config model into file;
     with open(config_file, mode='w', encoding=encoding) as f:
         config_json_data = json.dumps(config.__dict__, indent=2)
@@ -28,6 +29,7 @@ def save_data(scheduler: LRScheduler, dir_path: str) -> str:
         "The directory path containing the scheduler weights and its configs is not provided. "
         "NoneType/blank string provided instead.")
     model_file = os.path.join(dir_path, DATA_FILE_NAME)
+    os.makedirs(dir_path, exist_ok=True)
     # Save weights model into file;
     torch.save(scheduler.state_dict(), model_file)
     return model_file

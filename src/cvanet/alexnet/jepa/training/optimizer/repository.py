@@ -57,7 +57,7 @@ def load_data(dir_path: str, config: Config, optimizer: Optimizer=None,  model: 
         assert model is not None, (
             "An optimizer instance is not provided. So the model instance must be provided to build "
             "a new optimizer instance before loading state dict.")
-    assert not dir_path, (
+    assert dir_path, (
         "The directory path containing the optimizer weights and its configs is not provided. "
         "NoneType/blank string provided instead.")
     if not os.path.isdir(dir_path):

@@ -1,6 +1,6 @@
 import copy
 from typing import Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 import torch
 from torch import nn
@@ -13,7 +13,7 @@ class Config:
     ema_tau_min: float = 0.996
     ema_tau_max: float = 0.999
     ema_total_steps: int = 1000
-    backbone: AlexNetBackboneConfig = AlexNetBackboneConfig()
+    backbone: AlexNetBackboneConfig = field(default_factory=AlexNetBackboneConfig)
 
 
 class JEPA(nn.Module):

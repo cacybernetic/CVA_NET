@@ -42,13 +42,14 @@ class CustomImageDataset(BaseDataset):
         self.class_names = self.image_folder.classes
 
     def __len__(self):
+        return 1000
         return len(self.image_folder)
 
     def __getitem__(self, idx):
-        img, label = self.image_folder[idx]
+        img, _ = self.image_folder[idx]
         if self.transform:
-            img = self.transform(img)
-        return img, label
+            imgs = self.transform(img)
+        return imgs
 
 
 def custom_dataloaders(

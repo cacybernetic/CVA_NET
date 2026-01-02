@@ -2,6 +2,15 @@ import gc
 import logging
 from tqdm import tqdm
 
+# Set up logging:
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s [%(asctime)s] \t %(message)s',
+    handlers=[
+        logging.FileHandler("alexnet_jepa_train.log"),
+        logging.StreamHandler()
+    ]
+)
 
 LOGGER = logging.getLogger(__name__)
 

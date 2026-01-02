@@ -4,6 +4,7 @@ import yaml
 from cvanet.alexnet.backbone.model import Config as BackboneConfig
 from cvanet.alexnet.jepa.model import Config as ModelConfig
 from cvanet.alexnet.jepa.training.model import Config as TrainingConfig
+from cvanet.alexnet.jepa.training.factory import jepa_trainer
 from .cmdparser import parse_args
 
 LOGGER = logging.getLogger(__name__)
@@ -55,7 +56,14 @@ def _train_jepa(args) -> None:
         training_config.val_dataset = args['data_val']
     if 'imgsz' in args:
         training_config.image_size = int(args['imgsz'])
-
+    training_config.model = model_config
+    num_epochs = 2
+    if 'epochs' in args:
+        num_epochs = int(args['epochs'])
+    trainer, _ = jepa_trainer(training_config)
+    trainer.load_checkpoint()
+    trainer.compile()
+    trainer.execute(num_epochs)
 
 
 def main() -> None:

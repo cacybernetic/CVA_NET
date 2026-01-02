@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Tuple, Dict, Any
+from typing import Dict, Any
 import torch
 from .model import JEPA, Config
 from .factory import jepa
@@ -29,7 +29,7 @@ def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> str:
     config_file = os.path.join(dir_path, CONFIG_FILE_NAME)
     # Load state dict of model config;
     model_config_data = {attr:val for attr, val in config.__dict__.items() if attr != 'backbone'}
-    backbone_config_data = config.backbone
+    backbone_config_data = config.backbone.__dict__
     model_config_data['backbone'] = backbone_config_data
     # Save state dict of model config into file;
     os.makedirs(dir_path, exist_ok=True)
@@ -39,7 +39,7 @@ def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> str:
 
 def save_data(model: JEPA, dir_path: str, device_type: str=None) -> str:
     assert model is not None, "The instance of the model is none (NoneType). "
-    assert not dir_path, (
+    assert dir_path, (
         "The directory path containing the model weights and its configs is not provided. "
         "NoneType/blank string provided instead.")
     model_file = os.path.join(dir_path, DATA_FILE_NAME)
@@ -58,7 +58,7 @@ def save_data(model: JEPA, dir_path: str, device_type: str=None) -> str:
 
 
 def load_config(dir_path: str, encoding: str='utf-8') -> Config:
-    assert not dir_path, (
+    assert dir_path, (
         "The directory path containing the model weights and its configs is not provided. "
         "NoneType/blank string provided instead.")
     if not os.path.isdir(dir_path):
@@ -75,7 +75,7 @@ def load_config(dir_path: str, encoding: str='utf-8') -> Config:
 
 
 def load_data(dir_path: str, config: Config, model: JEPA=None) -> JEPA:
-    assert not dir_path, (
+    assert dir_path, (
         "The directory path containing the model weights and its configs is not provided. "
         "NoneType/blank string provided instead.")
     if not os.path.isdir(dir_path):

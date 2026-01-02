@@ -49,7 +49,7 @@ def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> Dict[st
 
 def save_data(trainer: JEPATrainer, dir_path: str, device_type: str=None, encoding: str='utf-8') -> Dict[str, Any]:
     assert trainer is not None, "The instance of the model or its config is none (NoneType)."
-    assert not dir_path, (
+    assert dir_path, (
         "The directory path containing the training state and its configs is not provided. "
         "NoneType/blank string provided instead.")
     # Compose folder path;
@@ -66,9 +66,9 @@ def save_data(trainer: JEPATrainer, dir_path: str, device_type: str=None, encodi
     # Save JEPA model;
     results['model'] = jepa_repos.save_data(model, jepa_model_dir, device_type=device_type)  # noqa
     # Save optimizer;
-    results['optimizer'] = optimizer_repos.save_data(optimizer, optimizer_dir, encoding)  # noqa
+    results['optimizer'] = optimizer_repos.save_data(optimizer, optimizer_dir)  # noqa
     # Save scheduler;
-    results['scheduler'] = scheduler_repos.save_data(scheduler, scheduler_dir, encoding)  # noqa
+    results['scheduler'] = scheduler_repos.save_data(scheduler, scheduler_dir)  # noqa
     # Save the training model;
     train_state_dict = trainer.state_dict()
     _write_json_file(train_state_dict, model_file, encoding)
@@ -76,7 +76,7 @@ def save_data(trainer: JEPATrainer, dir_path: str, device_type: str=None, encodi
 
 
 def load_config(dir_path: str, encoding: str='utf-8') -> Config:
-    assert not dir_path, (
+    assert dir_path, (
         "The directory path containing the training configs is not provided. "
         "NoneType/blank string provided instead.")
     if not os.path.isdir(dir_path):
@@ -87,7 +87,7 @@ def load_config(dir_path: str, encoding: str='utf-8') -> Config:
     optimizer_dir = os.path.join(dir_path, 'optimizer')
     scheduler_dir = os.path.join(dir_path, 'scheduler')
     # Load JEPA model config;
-    model, model_config = jepa_repos.load_config(jepa_model_dir, encoding)
+    model_config = jepa_repos.load_config(jepa_model_dir, encoding)
     # Load Optimizer model config;
     optimizer_config = optimizer_repos.load_config(optimizer_dir, encoding)
     # Load scheduler model config;
@@ -105,7 +105,7 @@ def load_config(dir_path: str, encoding: str='utf-8') -> Config:
 
 
 def load_data(dir_path: str, config: Config, encoding: str='utf-8', trainer: JEPATrainer=None) -> JEPATrainer:
-    assert not dir_path, (
+    assert dir_path, (
         "The directory path containing the training state is not provided. "
         "NoneType/blank string provided instead.")
     if not os.path.isdir(dir_path):

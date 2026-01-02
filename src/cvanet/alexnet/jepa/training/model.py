@@ -1,6 +1,6 @@
 import os
 from typing import  Dict, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import torch
 from torch.utils.data import DataLoader
 # Optimizer
@@ -27,7 +27,7 @@ class Config:
     val_dataset: str = 'datasets/val'
     batch_size: int = 32
     image_size: int = 224
-    gradient_accumulation: int = 1
+    gradient_accumulation: int = 128
     num_workers: int = 2
     amp: bool = True
     device: str = 'cpu'
@@ -35,9 +35,9 @@ class Config:
     checkpoint_dir: str = 'jepa-ckpts'
     max_ckpt_to_keep: int = 5
     best_model_dir: str = 'best'
-    model: JEPAConfig = None
-    optimizer: OptimizerConfig = None
-    scheduler: LRSchedulerConfig = None
+    model: JEPAConfig = field(default_factory=JEPAConfig)
+    optimizer: OptimizerConfig =  field(default_factory=OptimizerConfig)
+    scheduler: LRSchedulerConfig = field(default_factory=LRSchedulerConfig)
 
 
 class JEPATrainer:
@@ -63,6 +63,7 @@ class JEPATrainer:
             self._checkpoint_manager = CheckpointManager(ckpt_dir, self._config.max_ckpt_to_keep)
         self._best_val_loss = float('inf')
         self._start_epoch_idx = 0
+        self._num_accumulations = 1
         self._compiled = False
         self._checkpoint_loaded = False
 
@@ -124,18 +125,22 @@ class JEPATrainer:
         if self.optimizer is None:
             if self._config.optimizer is None:
                 self._config.optimizer = OptimizerConfig()
-            self.optimizer = build_optimizer(self.model, self._config.optimizer)
+            self.optimizer, _ = build_optimizer(self.model, self._config.optimizer)
         self._mon.log("Optimizer:")
         self._mon.log("  Config: " + repr(self.optimizer))
         # Instanciation of scheduler model;
         if self.scheduler is None:
             if self._config.scheduler is None:
                 self._config.scheduler = LRSchedulerConfig()
-            self.scheduler = lr_scheduler(self.optimizer, self._config.scheduler)
+            self.scheduler, _ = lr_scheduler(self.optimizer, self._config.scheduler)
         self._mon.log("Scheduler:")
         self._mon.log("  Config: " + repr(self.scheduler))
         if self._checkpoint_loaded:
             self._checkpoint_manager.load_data(self._start_epoch_idx, self._config, self)
+            self._start_epoch_idx += 1
+        # Calculate number of accumulations;
+        if self._config.gradient_accumulation > self._config.batch_size:
+            self._num_accumulations = self._config.gradient_accumulation // self._config.batch_size
         # Specify that all is ready;
         self._compiled = True
 
@@ -170,8 +175,10 @@ class JEPATrainer:
             view1, view2 = batch_data
             view1, view2 = view1.to(self._device), view2.to(self._device)
             # Forward pass;
-            predicted, target, _ = self._model(view1, view2)  # noqa
+            predicted, target, _ = self.model(view1, view2)  # noqa
             loss, mse, cosine = compute_loss(predicted, target)
+            loss_value = loss.item()
+            loss = loss / self._num_accumulations
             loss.backward()
             num_accumulation += predicted.shape[0]
             if num_accumulation >= self._config.gradient_accumulation:
@@ -185,7 +192,7 @@ class JEPATrainer:
                     " * Total loss %7.4f - MSE loss %7.4f - Cosine loss %7.4f" % (avg_loss, avg_mse, avg_cosine))
                 num_accumulation = 0
             # Statistiques;
-            total_loss += loss.item()
+            total_loss += loss_value
             total_mse += mse.item()
             total_cosine += cosine.item()
             ## Calculate average;
@@ -254,7 +261,7 @@ class JEPATrainer:
         # Training;
         self._mon.log(f"{'=' * 120}")
         self._mon.log(f"STARTING OF JEPA TRAINING - {num_epochs} EPOCHS")
-        self._mon.log(f"Start training at epoch number \"{self._start_epoch_idx + 1}\".")
+        self._mon.log(f"Start training at epoch number \"{self._start_epoch_idx}\".")
         self._mon.log(f"Start training on device \"{self._device}\".")
         self._mon.log(f"{'=' * 120}\n")
         for epoch in range(self._start_epoch_idx, num_epochs):
