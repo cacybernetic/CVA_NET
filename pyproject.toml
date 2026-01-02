@@ -76,3 +76,4 @@ where = ["src"]
 #cls_optimizer = "cva_net.classification.optimizer:main"
 #test_cls_trainer_fit = "cva_net.classification.trainer:test_fit_function"
 #train_classifier = "cva_net.classification.main:train"
+alexnet = "cvanet.entrypoints.alexnet:main"

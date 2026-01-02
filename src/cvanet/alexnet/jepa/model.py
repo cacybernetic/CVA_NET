@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from torch import nn
-from cva_net.alexnet.backbone.model import AlexNetBackbone, Config as AlexNetBackboneConfig
+from cvanet.alexnet.backbone.model import AlexNetBackbone, Config as AlexNetBackboneConfig
 
 
 @dataclass

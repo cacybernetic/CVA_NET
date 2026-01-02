@@ -1,6 +1,6 @@
 from typing import Tuple
 from .model import JEPA, Config
-from cva_net.alexnet.backbone.factory import alexnet_backbone
+from cvanet.alexnet.backbone.factory import alexnet_backbone
 
 
 def jepa(config: Config=None, **kwargs) -> Tuple[JEPA, Config]:

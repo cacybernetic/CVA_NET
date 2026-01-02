@@ -1,6 +1,6 @@
 from typing import Tuple
-from cva_net.alexnet.jepa.model import JEPA
-from cva_net.alexnet.jepa.factory import jepa
+from cvanet.alexnet.jepa.model import JEPA
+from cvanet.alexnet.jepa.factory import jepa
 from .model import JEPATrainer, Config as JEPATrainerConfig
 from .optimizer.model import Optimizer
 from .optimizer.lr_scheduler.model import LRScheduler
@@ -18,5 +18,5 @@ def jepa_trainer(
     config.__dict__.update(kwargs)
     if model is None:
         model, _ = jepa(config.model)
-    instance = JEPATrainer(model=model, optimizer=optimizer, scheduler=scheduler, config=config)
+    instance = JEPATrainer(config=config)
     return instance, config

@@ -1,5 +1,6 @@
-# import os
-from torch.utils.data import Dataset as BaseDataset
+import os
+from typing import Tuple
+from torch.utils.data import Dataset as BaseDataset, DataLoader
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 
@@ -48,3 +49,28 @@ class CustomImageDataset(BaseDataset):
         if self.transform:
             img = self.transform(img)
         return img, label
+
+
+def custom_dataloaders(
+    train_data_dir: str,
+    val_data_dir: str,
+    img_size: int=224,
+    batch_size: int=32,
+    num_workers: int=2,
+    pin_memory: bool=False,
+) -> Tuple[DataLoader, DataLoader]:
+    assert train_data_dir, "No training dataset directory provided."
+    assert val_data_dir, "No validation dataset directory provided."
+    if not os.path.isdir(train_data_dir):
+        raise FileNotFoundError("No such training dataset directory at \"%s\"." % (train_data_dir,))
+    if not os.path.isdir(val_data_dir):
+        raise FileNotFoundError("No such validation dataset directory at \"%s\"." % (val_data_dir,))
+    train_dataset = CustomImageDataset(
+        root_dir=train_data_dir, transform=MultiViewTransform(size=img_size))
+    val_dataset = CustomImageDataset(
+        root_dir=val_data_dir, transform=MultiViewTransform(size=img_size))
+    train_dataset_loader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory)
+    val_dataset_loader = DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory)
+    return train_dataset_loader, val_dataset_loader

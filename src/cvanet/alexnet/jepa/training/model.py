@@ -1,8 +1,8 @@
 import os
-from typing import  Dict, Any
+from typing import  Dict, Any, Optional
 from dataclasses import dataclass
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 # Optimizer
 from .optimizer.model import Optimizer, Config as OptimizerConfig
 from .optimizer.factory import optimizer as build_optimizer
@@ -10,9 +10,11 @@ from .optimizer.factory import optimizer as build_optimizer
 from .optimizer.lr_scheduler.model import LRScheduler, Config as LRSchedulerConfig
 from .optimizer.lr_scheduler.factory import lr_scheduler
 # JEPA model:
-from cva_net.alexnet.jepa import repository as jepa_repos
-from cva_net.alexnet.jepa.model import JEPA, Config as JEPAConfig
+from cvanet.alexnet.jepa.model import JEPA, Config as JEPAConfig
+from cvanet.alexnet.jepa.factory import jepa
+from cvanet.alexnet.jepa import repository as jepa_repos, summary
 # Others:
+from .dataset import custom_dataloaders
 from .loss_fn import compute_loss
 from .monitor import Monitor
 from .history import History
@@ -21,13 +23,17 @@ from .checkpoint import CheckpointManager
 
 @dataclass
 class Config:
+    train_dataset: str = 'datasets/train'
+    val_dataset: str = 'datasets/val'
     batch_size: int = 32
+    image_size: int = 224
     gradient_accumulation: int = 1
     num_workers: int = 2
     amp: bool = True
     device: str = 'cpu'
     output_dir: str = 'alexnet-jepa'
     checkpoint_dir: str = 'jepa-ckpts'
+    max_ckpt_to_keep: int = 5
     best_model_dir: str = 'best'
     model: JEPAConfig = None
     optimizer: OptimizerConfig = None
@@ -36,93 +42,78 @@ class Config:
 
 class JEPATrainer:
 
-    def __init__(
-        self,
-        model: JEPA,
-        train_dataset: Dataset=None,
-        val_dataset: Dataset=None,
-        optimizer: Optimizer=None,
-        scheduler: LRScheduler=None,
-        config: Config=None,
-    ) -> None:
+    def __init__(self, config: Config=None) -> None:
         """
         Method allows to create an instance of JEPA trainer.
         """
-        super().__init__()
-        self._model = model
-        self._train_dataset = train_dataset
-        self._val_dataset = val_dataset
-        self._optimizer = optimizer
-        self._scheduler = scheduler
         self._config = config
-        self._device = None
-        self._mon: Monitor = None
+        self.model: JEPA = None
+        self.optimizer: Optimizer = None
+        self.scheduler: LRScheduler = None
+        self._device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self._mon: Monitor = Monitor()
         self._train_dataset_loader: DataLoader = None
         self._val_dataset_loader: DataLoader = None
-        self._history: History = None
+        self._history: History =  History()
         self._checkpoint_manager: CheckpointManager = None
+        if self._config.checkpoint_dir is not None:
+            ckpt_dir = self._config.checkpoint_dir
+            assert ckpt_dir, "The path of directory that will be used to make checkpoint is an empty string."
+            ckpt_dir = os.path.join(self._config.output_dir, ckpt_dir)
+            self._checkpoint_manager = CheckpointManager(ckpt_dir, self._config.max_ckpt_to_keep)
         self._best_val_loss = float('inf')
+        self._start_epoch_idx = 0
         self._compiled = False
+        self._checkpoint_loaded = False
 
-    def train_dataset(self, dataset: Dataset) -> None:
-        self._train_dataset = dataset
-
-    def val_dataset(self, dataset: Dataset) -> None:
-        self._val_dataset = dataset
-
-    def checkpoint(self, checkpoint_man: CheckpointManager) -> None:
-        self._checkpoint_manager = checkpoint_man
+    def load_checkpoint(self) -> Optional[int]:
+        if self._checkpoint_manager is None:
+            return None
+        epoch = self._checkpoint_manager.get_latest_checkpoint()
+        if not epoch:
+            return None
+        self._config = self._checkpoint_manager.load_config()
+        self._start_epoch_idx = epoch
+        self._checkpoint_loaded = True
+        return epoch
 
     def compile(self) -> None:
-        assert self._train_dataset is not None, (
-            "The training dataset is not provided. Provide its calling train_dataset() method.")
-        assert self._val_dataset is not None, (
-            "The validation dataset is not provided. Provide its calling val_dataset() method.")
-        self._mon = Monitor()
+        assert self._config.train_dataset, "The directory path of training dataset is not provided."
+        assert self._config.val_dataset, "The directory path of validation dataset is not provided."
+        assert self.model is None or self._config.model is not None, "The model config is not specified."
+        assert self.optimizer is None or self._config.optimizer is not None, "The optimizer config is not specified."
+        assert self.scheduler is None or self._config.scheduler is not None, "The scheduler config is not specified."
         # Device setting;
         self._device = torch.device(self._config.device)
         # Create dataloaders;
         use_pin_memory = False
         if self._device.type == 'gpu':
             use_pin_memory = True
-        self._train_dataset_loader = DataLoader(
-            self._train_dataset, batch_size=self._config.batch_size, shuffle=True, num_workers=self._config.num_workers,
+        dataloaders = custom_dataloaders(
+            train_data_dir=self._config.train_dataset, val_data_dir=self._config.val_dataset,
+            img_size=self._config.image_size, batch_size=self._config.batch_size, num_workers=self._config.num_workers,
             pin_memory=use_pin_memory)
-        self._val_dataset_loader = DataLoader(
-            self._val_dataset, batch_size=self._config.batch_size, shuffle=False, num_workers=self._config.num_workers,
-            pin_memory=use_pin_memory)
-        # Model moving into selected device;
-        self._model = self._model.to(self._device)
+        self._train_dataset_loader = dataloaders[0]
+        self._val_dataset_loader = dataloaders[1]
+        # Instanciation of the model;
+        if self.model is None:
+            if self._config.model is None:
+                self._config.model = JEPAConfig()
+            self.model, _ = jepa(self._config.model)
+            self.model = self.model.to(self._device)
         # Instanciation of optimizer model;
-        if self._optimizer is None:
+        if self.optimizer is None:
             if self._config.optimizer is None:
                 self._config.optimizer = OptimizerConfig()
-            self._optimizer = build_optimizer(self._model, self._config.optimizer)
-        else:
-            assert self._config.optimizer is not None, (
-                "The optimizer provided has no configuration provided (optimizer_config is None).")
+            self.optimizer = build_optimizer(self.model, self._config.optimizer)
         # Instanciation of scheduler model;
-        if self._scheduler is None:
-            if self._config.scheduler is None:
-                self._config.scheduler = LRSchedulerConfig()
-            self._scheduler = lr_scheduler(self._optimizer, self._config.scheduler)
-        else:
-            assert self._config.scheduler is not None, (
-                "The scheduler provided has no configuration provided (scheduler_config is None).")
-        # Create empty history;
-        if self._history is None:
-            self._history = History()
+        if self._config.scheduler is None:
+            self._config.scheduler = LRSchedulerConfig()
+        self.scheduler = lr_scheduler(self.optimizer, self._config.scheduler)
+        if self._checkpoint_loaded:
+            self._checkpoint_manager.load_data(self._config, self, self._device)
         # Specify that all is ready;
         self._compiled = True
-
-    def get_model(self) -> JEPA:
-        return self._model
-
-    def get_optimizer(self) -> Optimizer:
-        return self._optimizer
-
-    def get_scheduler(self) -> LRScheduler:
-        return self._scheduler
 
     def state_dict(self) -> Dict[str, Any]:
         return {
@@ -141,7 +132,7 @@ class JEPATrainer:
         """
         Training function on one epoch.
         """
-        self._model.train()
+        self.model.train()
         total_loss = 0
         total_mse = 0
         total_cosine = 0
@@ -150,22 +141,22 @@ class JEPATrainer:
         avg_cosine = 0
         num_accumulation = 0
         self._mon.create_pbar(len(self._train_dataset_loader), desc="Training")
-        self._optimizer.zero_grad()
+        self.optimizer.zero_grad()
         for num_batchs, batch_data in enumerate(self._train_dataset_loader, 1):
             view1, view2 = batch_data
             view1, view2 = view1.to(self._device), view2.to(self._device)
             # Forward pass;
-            predicted, target, _ = self._model(view1, view2)
+            predicted, target, _ = self._model(view1, view2)  # noqa
             loss, mse, cosine = compute_loss(predicted, target)
             loss.backward()
             num_accumulation += predicted.shape[0]
             if num_accumulation >= self._config.gradient_accumulation:
                 # Gradient descent;
-                self._optimizer.step()
+                self.optimizer.step()
                 # Update EMA;
-                self._model.update_target_encoder()
+                self.model.update_target_encoder()
                 # Reset gradient;
-                self._optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 self._mon.print(
                     " * Total loss %7.4f - MSE loss %7.4f - Cosine loss %7.4f" % (avg_loss, avg_mse, avg_cosine))
                 num_accumulation = 0
@@ -195,7 +186,7 @@ class JEPATrainer:
         """
         Validation function on one epoch.
         """
-        self._model.eval()
+        self.model.eval()
         total_loss = 0
         total_mse = 0
         total_cosine = 0
@@ -208,7 +199,7 @@ class JEPATrainer:
                 view1, view2 = batch_data
                 view1, view2 = view1.to(self._device), view2.to(self._device)
                 # Forward pass;
-                predicted, target, _ = self._model(view1, view2)
+                predicted, target, _ = self.model(view1, view2)  # noqa
                 loss, mse, cosine = compute_loss(predicted, target)
                 # Statistiques;
                 total_loss += loss.item()
@@ -235,16 +226,20 @@ class JEPATrainer:
     def execute(self, num_epochs: int=1) -> History:
         assert self._compiled is True, (
             "You must call the method called `compile()` in first, before call the `execute()` method.")
+        # Print model summary;
+        model_stat = summary.build(self.model)
+        self._mon.log("="* 120)
+        self._mon.log("MODEL SUMMARY")
+        self._mon.log(f"{"=" * 120}\n")
+        self._mon.log(f"\n{model_stat}")
         # Training;
-        self._mon.log(f"\n{'=' * 120}")
+        self._mon.log(f"{'=' * 120}")
         self._mon.log(f"STARTING OF JEPA TRAINING - {num_epochs} EPOCHS")
+        self._mon.log(f"Start training at epoch number \"{self._start_epoch_idx + 1}\".")
+        self._mon.log(f"Start training on device \"{self._device}\".")
         self._mon.log(f"{'=' * 120}\n")
-        if self._history.count > 0:
-            start_epoch = self._history.count
-        else:
-            start_epoch = 0
-        for epoch in range(start_epoch, num_epochs):
-            self._mon.log(f"\nEpoch {epoch + 1}/{num_epochs}")
+        for epoch in range(self._start_epoch_idx, num_epochs):
+            self._mon.log(f"Epoch {epoch + 1}/{num_epochs}")
             # train on one epoch;
             train_results = self.train_epoch()
             self._history.append_train(
@@ -256,7 +251,7 @@ class JEPATrainer:
                 total_loss=val_results['total_loss'], mse_loss=val_results['mse_loss'],
                 cosine_loss=val_results['cosine_loss'])
             # Scheduler;
-            self._scheduler.step()
+            self.scheduler.step()
             self._mon.log(f"Train Loss: {train_results['total_loss']:.4f} | Val Loss: {val_results['total_loss']:.4f}")
             self._mon.log(f"Train MSE: {train_results['mse_loss']:.4f} | Val MSE: {val_results['mse_loss']:.4f}")
             self._mon.log(
@@ -264,10 +259,9 @@ class JEPATrainer:
             # Save the best model weights;
             if val_results['total_loss'] < self._best_val_loss:
                 self._best_val_loss = val_results['total_loss']
-                curr_best_model_dir = os.path.join(
-                    self._config.output_dir, "%s_%06d" % (self._config.best_model_dir, epoch))
+                curr_best_model_dir = os.path.join(self._config.output_dir, f"{self._config.best_model_dir}_{epoch:0d}")
                 jepa_repos.save(
-                    self._model, self._config.model, dir_path=curr_best_model_dir, device_type=self._device.type)
+                    self.model, self._config.model, dir_path=curr_best_model_dir, device_type=self._device.type)
                 self._mon.log("✓ Best model saved!")
             if self._checkpoint_manager is not None:
                 self._checkpoint_manager.save(epoch, self, self._config)
