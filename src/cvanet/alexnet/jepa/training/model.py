@@ -42,7 +42,7 @@ class Config:
 
 class JEPATrainer:
 
-    def __init__(self, config: Config=None) -> None:
+    def __init__(self, config: Config) -> None:
         """
         Method allows to create an instance of JEPA trainer.
         """
