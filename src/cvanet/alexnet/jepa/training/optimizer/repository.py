@@ -1,7 +1,5 @@
 import os
 import json
-from typing import Tuple, Dict
-
 import torch
 from torch import nn
 from .model import Optimizer, Config
