@@ -5,6 +5,9 @@ import torch
 from .model import JEPA, Config
 from .factory import jepa
 
+CONFIG_FILE_NAME = 'config.json'
+DATA_FILE_NAME = 'weights.pth'
+
 
 def _write_json_file(data_dict: Dict[str, Any], file_path: str, encoding: str='utf-8', indent: int=2) -> None:
     with open(file_path, mode='w', encoding=encoding) as f:
@@ -18,20 +21,27 @@ def _read_json_file(file_path: str, encoding: str='utf-8') -> Dict[str, Any]:
         return config_data_dict
 
 
-def save(
-    model: JEPA,
-    config: Config,
-    dir_path: str,
-    device_type: str=None,
-    encoding: str='utf-8'
-) -> Dict[str, str]:
+def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> str:
+    assert config is not None, "The instance of the model config is none (NoneType). "
+    assert dir_path, (
+        "The directory path containing the model weights and its configs is not provided. "
+        "NoneType/blank string provided instead.")
+    config_file = os.path.join(dir_path, CONFIG_FILE_NAME)
+    # Load state dict of model config;
+    model_config_data = {attr:val for attr, val in config.__dict__.items() if attr != 'backbone'}
+    backbone_config_data = config.backbone
+    model_config_data['backbone'] = backbone_config_data
+    # Save state dict of model config into file;
+    _write_json_file(model_config_data, config_file, encoding=encoding)
+    return config_file
+
+
+def save_data(model: JEPA, dir_path: str, device_type: str=None) -> str:
+    assert model is not None, "The instance of the model is none (NoneType). "
     assert not dir_path, (
         "The directory path containing the model weights and its configs is not provided. "
         "NoneType/blank string provided instead.")
-    if model is None or config is None:
-        raise ValueError("The instance of the model or its config is none (NoneType). ")
-    config_file = os.path.join(dir_path, 'config.json')
-    model_file = os.path.join(dir_path, 'weights.pth')
+    model_file = os.path.join(dir_path, DATA_FILE_NAME)
     weights = model.state_dict()
     cpu_weights = {}
     # Move weight into CPU if it not is in CPU;
@@ -42,26 +52,16 @@ def save(
         weights = cpu_weights
     # Save weights model into file;
     torch.save(weights, model_file)
-    # Load state dict of  model config;
-    model_config_data = {attr:val for attr, val in config.__dict__.items() if attr != 'backbone'}
-    backbone_config_data = config.backbone.__dict__
-    model_config_data['backbone'] = backbone_config_data
-    # Save state dict of model config into file;
-    _write_json_file(model_config_data, config_file, encoding=encoding)
-    return {
-      'config_file': config_file,
-      'model_file': model_file,
-    }
+    return model_file
 
 
-def load(dir_path: str, encoding: str='utf-8') -> Tuple[JEPA, Config]:
+def load_config(dir_path: str, encoding: str='utf-8') -> Config:
     assert not dir_path, (
         "The directory path containing the model weights and its configs is not provided. "
         "NoneType/blank string provided instead.")
     if not os.path.isdir(dir_path):
         raise FileNotFoundError("No such model directory at: %s" % (dir_path,))
-    config_file = os.path.join(dir_path, 'config.json')
-    model_file = os.path.join(dir_path, 'weights.pth')
+    config_file = os.path.join(dir_path, CONFIG_FILE_NAME)
     config = Config()
     # Load model config;
     if not os.path.isfile(config_file):
@@ -69,10 +69,21 @@ def load(dir_path: str, encoding: str='utf-8') -> Tuple[JEPA, Config]:
     config_data = _read_json_file(config_file, encoding)
     config.__dict__.update({attr:val for attr, val in config_data.items() if attr != 'backbone'})
     config.backbone.__dict__.update(config_data['backbone'])
+    return config
+
+
+def load(dir_path: str, config: Config, model: JEPA=None) -> JEPA:
+    assert not dir_path, (
+        "The directory path containing the model weights and its configs is not provided. "
+        "NoneType/blank string provided instead.")
+    if not os.path.isdir(dir_path):
+        raise FileNotFoundError("No such model directory at: %s" % (dir_path,))
+    model_file = os.path.join(dir_path, DATA_FILE_NAME)
     # Load JEPA model weights;
-    model, _ = jepa(config)
+    if model is None:
+        model, _ = jepa(config)
     if not os.path.isfile(model_file):
         raise FileNotFoundError("No such model file at: %s" % (model_file,))
     weights = torch.load(model_file, weights_only=True, map_location='cpu')
     model.load_state_dict(weights)
-    return model, config
+    return model

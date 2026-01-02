@@ -8,7 +8,7 @@ CONFIG_FILE_NAME = 'config.json'
 DATA_FILE_NAME = 'weights.pth'
 
 
-def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> None:
+def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> str:
     assert config is not None, "The instance of the model config is none (NoneType)."
     assert dir_path, (
         "The directory path containing the model weights and its configs is not provided. "
@@ -18,9 +18,10 @@ def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> None:
     with open(config_file, mode='w', encoding=encoding) as f:
         config_json_data = json.dumps(config.__dict__, indent='2')
         f.write(config_json_data)
+    return config_file
 
 
-def save_data(model: AlexNetBackbone, dir_path: str, device_type: str=None) -> None:
+def save_data(model: AlexNetBackbone, dir_path: str, device_type: str=None) -> str:
     assert model is not None, "The instance of the model is none (NoneType)."
     # Move weight into CPU if it not is in CPU;
     weights = model.state_dict()
@@ -33,6 +34,7 @@ def save_data(model: AlexNetBackbone, dir_path: str, device_type: str=None) -> N
     # Save weights model into file;
     model_file = os.path.join(dir_path, DATA_FILE_NAME)
     torch.save(weights, model_file)
+    return model_file
 
 
 def load_config(dir_path: str, encoding: str='utf-8') -> Config:
