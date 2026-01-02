@@ -84,7 +84,8 @@ class JEPATrainer:
         assert self.optimizer is None or self._config.optimizer is not None, "The optimizer config is not specified."
         assert self.scheduler is None or self._config.scheduler is not None, "The scheduler config is not specified."
         # Device setting;
-        self._device = torch.device(self._config.device)
+        if self._config.device:
+            self._device = torch.device(self._config.device)
         # Create dataloaders;
         use_pin_memory = False
         if self._device.type == 'gpu':
