@@ -1,5 +1,5 @@
 import os
-from typing import  Dict, Any, Optional
+from typing import  Dict, Any, Optional, Union
 from dataclasses import dataclass, field
 import torch
 from torch.utils.data import DataLoader
@@ -23,6 +23,7 @@ from .checkpoint import CheckpointManager
 
 @dataclass
 class Config:
+    seed: int = 42
     train_dataset: str = 'datasets/train'
     val_dataset: str = 'datasets/val'
     batch_size: int = 32
@@ -79,6 +80,26 @@ class JEPATrainer:
         self._checkpoint_loaded = True
         return epoch
 
+    @staticmethod
+    def set_seed(seed: int, device: Union[str, torch.device]=None) -> None:
+        """
+        Set seeds for reproducibility.
+
+        :param seed: An integer value to define the seed for random generator.
+        :param device: The selected device.
+        """
+        # random.seed(seed)
+        # np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        if (
+            (isinstance(device, torch.device) and device.type == 'gpu')
+            or (isinstance(device, str) and device.startswith('cuda'))
+        ):
+            # Also set the deterministic flag for reproducibility
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+
     def compile(self) -> None:
         assert self._config.train_dataset, "The directory path of training dataset is not provided."
         assert self._config.val_dataset, "The directory path of validation dataset is not provided."
@@ -96,6 +117,8 @@ class JEPATrainer:
         else:
             self._device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self._mon.log(f"Device selected is \"{self._device}\".")
+        # Setting of seed value for random generators;
+        self.set_seed(self._config.seed, self._device)
         # Create dataloaders;
         use_pin_memory = False
         if self._device.type == 'gpu':

@@ -32,6 +32,8 @@ def _train_jepa(args) -> None:
     model_config.backbone = backbone_config
     # Create the training config;
     training_config = TrainingConfig()
+    if 'seed' in args:
+        training_config.seed = int(args['seed'])
     if 'device' in args:
         training_config.device = args['device']
     if 'batchs' in args:
