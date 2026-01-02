@@ -108,9 +108,10 @@ class JEPATrainer:
                 self._config.optimizer = OptimizerConfig()
             self.optimizer = build_optimizer(self.model, self._config.optimizer)
         # Instanciation of scheduler model;
-        if self._config.scheduler is None:
-            self._config.scheduler = LRSchedulerConfig()
-        self.scheduler = lr_scheduler(self.optimizer, self._config.scheduler)
+        if self.scheduler is None:
+            if self._config.scheduler is None:
+                self._config.scheduler = LRSchedulerConfig()
+            self.scheduler = lr_scheduler(self.optimizer, self._config.scheduler)
         if self._checkpoint_loaded:
             self._checkpoint_manager.load_data(self._config, self, self._device)
         # Specify that all is ready;
