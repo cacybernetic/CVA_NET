@@ -210,11 +210,12 @@ class JEPATrainer:
                 self._config.model = JEPAConfig()
             self.model, _ = jepa(self._config.model)
             self.model = self.model.to(self._device)
-        model_stat = summary.build(self.model, device=self._device)
+        model_stat, inference_time = summary.build(self.model, device=self._device)
         self._mon.log("=" * 120)
         self._mon.log("MODEL SUMMARY")
         self._mon.log(f"{"=" * 120}")
         self._mon.log(f"\n{model_stat}")
+        self._mon.log(f"Inference times: {inference_time:.3f} seconds.")
 
     def compile(self) -> None:
         assert self._config.train_dataset, "The directory path of training dataset is not provided."
