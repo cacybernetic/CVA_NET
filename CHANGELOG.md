@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- - Correction d'un bug empêchant l'export dans certains cas -->
+- Fixing of the bugs linked to weight decay definition for Alexnet JEPA training.
 
 ### Deprecated
 <!-- - L'ancienne API v1 est dépréciée et sera supprimée dans la version 2.0 -->
