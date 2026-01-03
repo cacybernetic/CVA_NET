@@ -35,7 +35,7 @@ class MultiViewTransform:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-    def __call__(self, x):
+    def __call__(self, x: Image.Image) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.context_transform(x), self.target_transform(x)
 
 
@@ -54,7 +54,7 @@ class CustomImageDataset(BaseDataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         image_file = self._image_files[idx]
-        image = Image.open(image_file).convert('rgb')
+        image = Image.open(image_file).convert('RGB')
         images = self._transform(image)
         return images
 
@@ -67,8 +67,8 @@ def enumerate_image_files(directory_path: str, recursive: bool = True,extensions
     with image extensions.
 
     Args:
-        directory_path: Path to the directory to search
-        recursive: If True, search in subdirectories (default: True)
+        directory_path: Path to the directory to search.
+        recursive: If True, search in subdirectories (default: True).
         extensions: Set of image file extensions to look for. If None, uses default image extensions.
 
     Returns:

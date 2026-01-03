@@ -1,10 +1,10 @@
 import logging
-from typing import Tuple
-import yaml
 from cvanet.alexnet.backbone.model import Config as BackboneConfig
 from cvanet.alexnet.jepa.model import Config as ModelConfig
 from cvanet.alexnet.jepa.training.model import Config as TrainingConfig
 from cvanet.alexnet.jepa.training.factory import jepa_trainer
+from cvanet.alexnet.jepa.training.optimizer.model import Config as OptimizerConfig
+
 from .cmdparser import parse_args
 
 LOGGER = logging.getLogger(__name__)
@@ -30,6 +30,25 @@ def _train_jepa(args) -> None:
     if 'ema_total_steps' in args:
         model_config.ema_total_steps = int(args['ema_total_steps'])
     model_config.backbone = backbone_config
+    # Create the optimizer config;
+    optimizer_config = OptimizerConfig()
+    if 'lr0' in args:
+        optimizer_config.lr0 = float(args['lr0'])
+    if 'optimizer' in args:
+        optimizer_config.optimizer = args['optimizer']
+    if 'weight_decay' in args:
+        optimizer_config.weight_decay = args['weight_decay']
+    if 'eps' in args:
+        optimizer_config.eps = float(args['eps'])
+    if 'momentum' in args:
+        optimizer_config.momentum = float(args['momentum'])
+    if 'dampening' in args:
+        optimizer_config.dampening = float(args['dampening'])
+    if 'betas' in args:
+        bx = args['betas'].split(',')
+        b1 = float(bx[0])
+        b2 = float(bx[1])
+        optimizer_config.betas = (b1, b2)
     # Create the training config;
     training_config = TrainingConfig()
     if 'seed' in args:
@@ -58,7 +77,10 @@ def _train_jepa(args) -> None:
         training_config.val_dataset = args['data_val']
     if 'imgsz' in args:
         training_config.image_size = int(args['imgsz'])
+    if 'workers' in args:
+        training_config.num_workers = int(args['workers'])
     training_config.model = model_config
+    training_config.optimizer = optimizer_config
     num_epochs = 2
     if 'epochs' in args:
         num_epochs = int(args['epochs'])
