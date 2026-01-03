@@ -407,8 +407,6 @@ class JEPATrainer:
             self._history.append_val(
                 total_loss=val_results['total_loss'], mse_loss=val_results['mse_loss'],
                 cosine_loss=val_results['cosine_loss'])
-            # Update model EMA;
-            self.model.update_target_encoder()
             # Scheduler;
             self.scheduler.step()
             self._mon.log(f"Train Loss: {train_results['total_loss']:.4f} | Val Loss: {val_results['total_loss']:.4f}")
@@ -426,6 +424,9 @@ class JEPATrainer:
             if self._checkpoint_manager is not None:
                 self._checkpoint_manager.save_config(epoch, self._config)
                 self._checkpoint_manager.save_data(epoch, self, device_type=self._device.type)
+            # Plotting of training progression into image file;
             self._history.plot(train_curves_file)
             self._mon.log("Training curves is plotted at \"" + train_curves_file + "\".")
+            # Update model EMA;
+            self.model.update_target_encoder()
         return self._history
