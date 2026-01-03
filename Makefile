@@ -1,6 +1,7 @@
 VENV_DIR = .venv
 VENV_BIN = $(VENV_DIR)/bin
 PYTHON3 = $(VENV_BIN)/python3
+PYTEST = $(VENV_BIN)/pytest
 
 install:
 	test -d .venv || (python3 -m venv .venv && echo "\033[92mVirtual environment is created successfully.\033[0m")
@@ -20,7 +21,7 @@ dev_install:
 	$(PYTHON3) -m pip install -e .
 
 test:
-	$(VENV_BIN)/pytest tests
+	$(PYTEST) tests
 
 pep8:
 	# Don't remove their commented follwing command lines:
