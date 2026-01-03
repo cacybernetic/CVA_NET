@@ -5,8 +5,8 @@ from torch import nn
 from torch import optim
 from torch.utils.data import TensorDataset
 
-from cva_net.alexnet import ModelFactory as AlexnetModel
-from cva_net.classification.trainer import Trainer, fit
+from cvanet.alexnet import ModelFactory as AlexnetModel
+from cvanet.classification.trainer import Trainer, fit
 
 LOGGER = logging.getLogger(__name__)
 

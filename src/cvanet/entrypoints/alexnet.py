@@ -58,8 +58,8 @@ def _train_jepa(args) -> None:
         training_config.device = args['device']
     if 'batchs' in args:
         training_config.batch_size = int(args['batchs'])
-    if 'accumulation' in args:
-        training_config.gradient_accumulation = int(args['accumulation'])
+    if 'gradient_accumulations' in args:
+        training_config.gradient_accumulations = int(args['gradient_accumulations'])
     if 'amp' in args:
         training_config.amp = ast.literal_eval(args['amp'])
     if 'output' in args:
@@ -83,8 +83,6 @@ def _train_jepa(args) -> None:
     num_epochs = 2
     if 'epochs' in args:
         num_epochs = int(args['epochs'])
-    # print(training_config)
-    # exit()
     trainer, _ = jepa_trainer(training_config)
     trainer.load_checkpoint()
     trainer.compile()
