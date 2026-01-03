@@ -6,6 +6,7 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset as BaseDataset, DataLoader
 from torchvision import transforms
+from torchvision.utils import save_image
 
 IMAGE_EXTENSIONS = {
     '.jpg', '.jpeg', '.png', '.gif', '.bmp',
@@ -93,9 +94,8 @@ class ImageRegionMasker(torch.nn.Module):
         for intact_region in intact_regions:
             y1, y2, x1, x2 = intact_region
             masked_array[y1:y2, x1:x2] = img_array[y1:y2, x1:x2]
-        masked_image = Image.fromarray(masked_array.astype(np.uint8))
         # masked_image.save('masked.jpg')
-        return masked_image
+        return masked_array
 
 
 class MultiViewTransform:
@@ -106,24 +106,27 @@ class MultiViewTransform:
     def __init__(self, size=224):
         self.context_transform = transforms.Compose([
             ImageRegionMasker(),
-            # transforms.Resize((size, size)),
+            transforms.ToTensor(),
+            transforms.Resize((size, size)),
             # transforms.RandomResizedCrop(size, scale=(0.6, 1.0)),
             # transforms.RandomHorizontalFlip(p=0.5),
             # transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
             # transforms.RandomGrayscale(p=0.2),
-            transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
         self.target_transform = transforms.Compose([
-            # transforms.Resize((size, size)),
+            transforms.Resize((size, size)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
-        self._size = (size, size)
 
     def __call__(self, x: Image.Image) -> Tuple[torch.Tensor, torch.Tensor]:
-        x = x.resize(self._size)
-        return self.context_transform(x), self.target_transform(x)
+        # x = x.resize(self._size)
+        y1 = self.context_transform(x)
+        y2 = self.target_transform(x)
+        # save_image(y1, 'y1.png')
+        # save_image(y2, 'y2.png')
+        return y1, y2
 
 
 class CustomImageDataset(BaseDataset):
@@ -136,7 +139,7 @@ class CustomImageDataset(BaseDataset):
         self._transform = MultiViewTransform(size)
 
     def __len__(self) -> int:
-        # return 100
+        # return 1000
         return len(self._image_files)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
