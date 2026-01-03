@@ -1,3 +1,4 @@
+import ast
 import logging
 from cvanet.alexnet.backbone.model import Config as BackboneConfig
 from cvanet.alexnet.jepa.model import Config as ModelConfig
@@ -59,10 +60,8 @@ def _train_jepa(args) -> None:
         training_config.batch_size = int(args['batchs'])
     if 'accumulation' in args:
         training_config.gradient_accumulation = int(args['accumulation'])
-    if 'num_workers' in args:
-        training_config.num_workers = int(args['num_workers'])
     if 'amp' in args:
-        training_config.amp = bool(args['amp'])
+        training_config.amp = ast.literal_eval(args['amp'])
     if 'output' in args:
         training_config.output_dir = args['output']
     if 'best_model' in args:
@@ -84,6 +83,8 @@ def _train_jepa(args) -> None:
     num_epochs = 2
     if 'epochs' in args:
         num_epochs = int(args['epochs'])
+    # print(training_config)
+    # exit()
     trainer, _ = jepa_trainer(training_config)
     trainer.load_checkpoint()
     trainer.compile()

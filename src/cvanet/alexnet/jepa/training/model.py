@@ -2,6 +2,8 @@ import os
 from typing import  Dict, Any, Optional, Union
 from dataclasses import dataclass, field
 import torch
+from torch import nn
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 # Optimizer
 from .optimizer.model import Optimizer, Config as OptimizerConfig
@@ -30,7 +32,7 @@ class Config:
     image_size: int = 224
     gradient_accumulation: int = 128
     num_workers: int = 2
-    amp: bool = True
+    amp: bool = False
     device: str = 'cpu'
     output_dir: str = 'alexnet-jepa'
     checkpoint_dir: str = 'jepa-ckpts'
@@ -39,6 +41,79 @@ class Config:
     model: JEPAConfig = field(default_factory=JEPAConfig)
     optimizer: OptimizerConfig =  field(default_factory=OptimizerConfig)
     scheduler: LRSchedulerConfig = field(default_factory=LRSchedulerConfig)
+
+
+def _train_step(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    model: JEPA,
+    optimizer: Optimizer,
+    num_accumulated: int,
+    num_accumulations: int,
+    gradient_accumulation: int,
+    avg_loss: float,
+    avg_mse: float,
+    avg_cosine: float,
+    mon: Monitor,
+    scaler: GradScaler=None,
+    device: torch.device=None,
+) -> Dict[str, Any]:
+    # Forward pass;
+    predicted, target, _ = model(x, y)  # noqa
+    loss, mse, cosine = compute_loss(predicted, target)
+    loss_value = loss.item()
+    loss = loss / num_accumulations
+    loss.backward()
+    num_accumulated += predicted.shape[0]
+    if num_accumulated >= gradient_accumulation:
+        ### Optimizer step;
+        optimizer.step()
+        ### Update EMA;
+        model.update_target_encoder()
+        ### Reset gradient;
+        optimizer.zero_grad()
+        mon.print(" * Total loss %7.4f - MSE loss %7.4f - Cosine loss %7.4f" % (avg_loss, avg_mse, avg_cosine))
+        num_accumulated = 0
+    return {'num_accumulated': num_accumulated, "loss_value": loss_value, 'mse': mse.item(), 'cosine': cosine.item()}
+
+
+def _train_step_with_scaler(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    model: JEPA,
+    optimizer: Optimizer,
+    num_accumulated: int,
+    num_accumulations: int,
+    gradient_accumulation: int,
+    avg_loss: float,
+    avg_mse: float,
+    avg_cosine: float,
+    mon: Monitor,
+    scaler: GradScaler,
+    device: torch.device,
+) -> Dict[str, Any]:
+    # Forward pass;
+    with autocast(str(device), dtype=torch.float16):
+        predicted, target, _ = model(x, y)  # noqa
+        loss, mse, cosine = compute_loss(predicted, target)
+        loss_value = loss.item()
+        loss = loss / num_accumulations
+    scaler.scale(loss).backward()
+    num_accumulated += predicted.shape[0]
+    if num_accumulated >= gradient_accumulation:
+        ### Gradient unscaling and clipping;
+        scaler.unscale_(optimizer)
+        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        ### Optimizer step;
+        scaler.step(optimizer)
+        scaler.update()
+        ### Update EMA;
+        model.update_target_encoder()
+        ### Reset gradient;
+        optimizer.zero_grad()
+        mon.print(" * Total loss %7.4f - MSE loss %7.4f - Cosine loss %7.4f" % (avg_loss, avg_mse, avg_cosine))
+        num_accumulated = 0
+    return {'num_accumulated': num_accumulated, "loss_value": loss_value, 'mse': mse.item(), 'cosine': cosine.item()}
 
 
 class JEPATrainer:
@@ -62,9 +137,11 @@ class JEPATrainer:
             assert ckpt_dir, "The path of directory that will be used to make checkpoint is an empty string."
             ckpt_dir = os.path.join(self._config.output_dir, ckpt_dir)
             self._checkpoint_manager = CheckpointManager(ckpt_dir, self._config.max_ckpt_to_keep)
+        self._scaler = None
         self._best_val_loss = float('inf')
         self._start_epoch_idx = 0
         self._num_accumulations = 1
+        self._train_step = None
         self._compiled = False
         self._checkpoint_loaded = False
 
@@ -100,13 +177,7 @@ class JEPATrainer:
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
 
-    def compile(self) -> None:
-        assert self._config.train_dataset, "The directory path of training dataset is not provided."
-        assert self._config.val_dataset, "The directory path of validation dataset is not provided."
-        assert self.model is None or self._config.model is not None, "The model config is not specified."
-        assert self.optimizer is None or self._config.optimizer is not None, "The optimizer config is not specified."
-        assert self.scheduler is None or self._config.scheduler is not None, "The scheduler config is not specified."
-        # Device setting;
+    def _device_setting(self) -> None:
         if self._config.device:
             device_name = self._config.device
             if device_name.startswith('cuda'):
@@ -117,9 +188,8 @@ class JEPATrainer:
         else:
             self._device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self._mon.log(f"Device selected is \"{self._device}\".")
-        # Setting of seed value for random generators;
-        self.set_seed(self._config.seed, self._device)
-        # Create dataloaders;
+
+    def _create_dataloaders(self) -> None:
         use_pin_memory = False
         if self._device.type == 'gpu':
             use_pin_memory = True
@@ -133,7 +203,8 @@ class JEPATrainer:
         self._mon.log(f"  Number of batchs -> {len(self._train_dataset_loader)}")
         self._mon.log("Validation dataset:")
         self._mon.log(f"  Number of batchs -> {len(self._val_dataset_loader)}")
-        # Instanciation of the model;
+
+    def _instanciate_model(self) -> None:
         if self.model is None:
             if self._config.model is None:
                 self._config.model = JEPAConfig()
@@ -144,26 +215,53 @@ class JEPATrainer:
         self._mon.log("MODEL SUMMARY")
         self._mon.log(f"{"=" * 120}")
         self._mon.log(f"\n{model_stat}")
+
+    def compile(self) -> None:
+        assert self._config.train_dataset, "The directory path of training dataset is not provided."
+        assert self._config.val_dataset, "The directory path of validation dataset is not provided."
+        assert self.model is None or self._config.model is not None, "The model config is not specified."
+        assert self.optimizer is None or self._config.optimizer is not None, "The optimizer config is not specified."
+        assert self.scheduler is None or self._config.scheduler is not None, "The scheduler config is not specified."
+        # Logging of training config;
+        self._mon.log("=" * 120)
+        self._mon.log("TRAINING CONFIG")
+        self._mon.log(f"{"=" * 120}")
+        self._mon.log(str(self._config))
+        # Device setting;
+        self._device_setting()
+        # Setting of seed value for random generators;
+        self.set_seed(self._config.seed, self._device)
+        # Create dataloaders;
+        self._create_dataloaders()
+        # Instanciation of the model;
+        self._instanciate_model()
         # Instanciation of optimizer model;
         if self.optimizer is None:
             if self._config.optimizer is None:
                 self._config.optimizer = OptimizerConfig()
             self.optimizer, _ = build_optimizer(self.model, self._config.optimizer)
         self._mon.log("Optimizer:")
-        self._mon.log("  Config: " + repr(self.optimizer))
+        self._mon.log("  Config: " + str(self.optimizer))
         # Instanciation of scheduler model;
         if self.scheduler is None:
             if self._config.scheduler is None:
                 self._config.scheduler = LRSchedulerConfig()
             self.scheduler, _ = lr_scheduler(self.optimizer, self._config.scheduler)
         self._mon.log("Scheduler:")
-        self._mon.log("  Config: " + repr(self.scheduler))
+        self._mon.log("  Config: " + str(self.scheduler))
         if self._checkpoint_loaded:
             self._checkpoint_manager.load_data(self._start_epoch_idx, self._config, self)
-            self._start_epoch_idx += 1
+            self._start_epoch_idx += 1  # We will pass to the next epoch.
         # Calculate number of accumulations;
         if self._config.gradient_accumulation > self._config.batch_size:
             self._num_accumulations = self._config.gradient_accumulation // self._config.batch_size
+        # Initialize gradient scaler;
+        if self._config.amp:
+            self._scaler = GradScaler(device=str(self._device), enabled=True)
+            self._train_step = _train_step_with_scaler
+            self._mon.log("Mean Average Precision enable.")
+        else:
+            self._train_step = _train_step
         # Specify that all is ready;
         self._compiled = True
 
@@ -191,33 +289,23 @@ class JEPATrainer:
         avg_loss = 0
         avg_mse = 0
         avg_cosine = 0
-        num_accumulation = 0
+        num_accumulated = 0
         self._mon.create_pbar(len(self._train_dataset_loader), desc="Training")
         self.optimizer.zero_grad()
         for num_batchs, batch_data in enumerate(self._train_dataset_loader, 1):
             view1, view2 = batch_data
             view1, view2 = view1.to(self._device), view2.to(self._device)
             # Forward pass;
-            predicted, target, _ = self.model(view1, view2)  # noqa
-            loss, mse, cosine = compute_loss(predicted, target)
-            loss_value = loss.item()
-            loss = loss / self._num_accumulations
-            loss.backward()
-            num_accumulation += predicted.shape[0]
-            if num_accumulation >= self._config.gradient_accumulation:
-                # Gradient descent;
-                self.optimizer.step()
-                # Update EMA;
-                self.model.update_target_encoder()
-                # Reset gradient;
-                self.optimizer.zero_grad()
-                self._mon.print(
-                    " * Total loss %7.4f - MSE loss %7.4f - Cosine loss %7.4f" % (avg_loss, avg_mse, avg_cosine))
-                num_accumulation = 0
+            results = self._train_step(
+                x=view1, y=view1, model=self.model, optimizer=self.optimizer, num_accumulated=num_accumulated,
+                num_accumulations=self._num_accumulations, gradient_accumulation=self._config.gradient_accumulation,
+                avg_loss=avg_loss, avg_mse=avg_mse, avg_cosine=avg_cosine, mon=self._mon, scaler=self._scaler,
+                device=self._device)
+            num_accumulated = results['num_accumulated']
             # Statistiques;
-            total_loss += loss_value
-            total_mse += mse.item()
-            total_cosine += cosine.item()
+            total_loss += results['loss_value']
+            total_mse += results['mse']
+            total_cosine += results['cosine']
             ## Calculate average;
             avg_loss = total_loss / num_batchs
             avg_mse = total_mse / num_batchs
@@ -254,8 +342,9 @@ class JEPATrainer:
                 view1, view2 = batch_data
                 view1, view2 = view1.to(self._device), view2.to(self._device)
                 # Forward pass;
-                predicted, target, _ = self.model(view1, view2)  # noqa
-                loss, mse, cosine = compute_loss(predicted, target)
+                with autocast(str(self._device), dtype=torch.float16):
+                    predicted, target, _ = self.model(view1, view2)  # noqa
+                    loss, mse, cosine = compute_loss(predicted, target)
                 # Statistiques;
                 total_loss += loss.item()
                 total_mse += mse.item()
