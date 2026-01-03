@@ -72,7 +72,19 @@ Key advantages:
 ## Installation
 
 To install the project, make sure you have Python 3.8 or later version
-and `pip` installed on your machine. And then run the following command lines.
+and `pip` installed on your machine. And then run the following command lines
+to install directly this program.
+
+```bash
+# From main branch:
+pip install git+https://github.com/cacybernetic/CVA_NET
+
+# Or From develop branch:
+pip install git+https://github.com/cacybernetic/CVA_NET@dev
+```
+
+or run the following command line to get project repository, install all dependencies 
+manually and install this program in developer mode.
 
 ### For Linux
 
