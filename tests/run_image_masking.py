@@ -9,7 +9,7 @@ class ImageRegionMasker:
     leaving only one region intact.
     """
 
-    def __init__(self, num_regions_to_show=1, num_masked_regions=8, min_region_size=0.2, max_region_size=0.5):
+    def __init__(self, num_regions_to_show=1, num_masked_regions=8, min_region_size=0.2, max_region_size=0.4):
         """
         Initialize the masker with configuration parameters.
 
@@ -135,21 +135,21 @@ def main():
     import os
 
     # Check if image path is provided as argument
-    if len(sys.argv) > 1:
-        image_path = sys.argv[1]
-    else:
-        # Prompt user for image path
-        print("Please provide the path to your image file:")
-        print("Usage: python script.py <image_path>")
-        print("\nOr enter the image path now:")
-        image_path = input().strip()
+    # if len(sys.argv) > 1:
+    #     image_path = sys.argv[1]
+    # else:
+    #     # Prompt user for image path
+    #     print("Please provide the path to your image file:")
+    #     print("Usage: python script.py <image_path>")
+    #     print("\nOr enter the image path now:")
+    #     image_path = input().strip()
 
     # Validate image path
-    if not os.path.exists(image_path):
-        print(f"Error: Image file not found at '{image_path}'")
-        print("Please provide a valid image file path.")
-        return
-
+    # if not os.path.exists(image_path):
+    #     print(f"Error: Image file not found at '{image_path}'")
+    #     print("Please provide a valid image file path.")
+    #     return
+    image_path = 'image.jpg'
     print(f"\nLoading image from: {image_path}")
 
     try:
@@ -161,37 +161,37 @@ def main():
         print(f"Image shape: {img_array.shape}")
         print(f"Image mode: {img.mode}")
 
-        # Test 1: Basic transformation
-        print("\n" + "=" * 60)
-        print("--- Test 1: Show 1 region (8 masked) ---")
-        print("=" * 60)
-        masker = ImageRegionMasker(num_regions_to_show=1, num_masked_regions=8)
-        result, intact_regions = masker.transform(image_path, 'masked_output_1.png')
-
-        print(f"Number of intact regions: {len(intact_regions)}")
-        for i, (y1, y2, x1, x2) in enumerate(intact_regions, 1):
-            print(f"  Region {i}: top={y1}, bottom={y2}, left={x1}, right={x2}")
-            print(f"  Region {i} size: {y2 - y1}x{x2 - x1} pixels")
-        print("✓ Output saved as 'masked_output_1.png'")
-
-        # Test 2: Show multiple regions
-        print("\n" + "=" * 60)
-        print("--- Test 2: Show 3 regions (10 masked) ---")
-        print("=" * 60)
-        masker2 = ImageRegionMasker(num_regions_to_show=3, num_masked_regions=10, min_region_size=0.15,
-                                    max_region_size=0.4)
-        result2, intact_regions2 = masker2.transform(image_path, 'masked_output_2.png')
-        print(f"Number of intact regions: {len(intact_regions2)}")
-        for i, (y1, y2, x1, x2) in enumerate(intact_regions2, 1):
-            print(f"  Region {i}: ({y1}, {y2}, {x1}, {x2}) - size: {y2 - y1}x{x2 - x1} pixels")
-        print("✓ Output saved as 'masked_output_2.png'")
+        # # Test 1: Basic transformation
+        # print("\n" + "=" * 60)
+        # print("--- Test 1: Show 1 region (8 masked) ---")
+        # print("=" * 60)
+        # masker = ImageRegionMasker(num_regions_to_show=1, num_masked_regions=8)
+        # result, intact_regions = masker.transform(image_path, 'masked_output_1.png')
+        #
+        # print(f"Number of intact regions: {len(intact_regions)}")
+        # for i, (y1, y2, x1, x2) in enumerate(intact_regions, 1):
+        #     print(f"  Region {i}: top={y1}, bottom={y2}, left={x1}, right={x2}")
+        #     print(f"  Region {i} size: {y2 - y1}x{x2 - x1} pixels")
+        # print("✓ Output saved as 'masked_output_1.png'")
+        #
+        # # Test 2: Show multiple regions
+        # print("\n" + "=" * 60)
+        # print("--- Test 2: Show 3 regions (10 masked) ---")
+        # print("=" * 60)
+        # masker2 = ImageRegionMasker(num_regions_to_show=3, num_masked_regions=10, min_region_size=0.15,
+        #                             max_region_size=0.4)
+        # result2, intact_regions2 = masker2.transform(image_path, 'masked_output_2.png')
+        # print(f"Number of intact regions: {len(intact_regions2)}")
+        # for i, (y1, y2, x1, x2) in enumerate(intact_regions2, 1):
+        #     print(f"  Region {i}: ({y1}, {y2}, {x1}, {x2}) - size: {y2 - y1}x{x2 - x1} pixels")
+        # print("✓ Output saved as 'masked_output_2.png'")
 
         # Test 3: With visualization
         print("\n" + "=" * 60)
         print("--- Test 3: Show 5 regions with analysis (12 masked) ---")
         print("=" * 60)
-        masker3 = ImageRegionMasker(num_regions_to_show=5, num_masked_regions=12, min_region_size=0.15,
-                                    max_region_size=0.35)
+        masker3 = ImageRegionMasker(num_regions_to_show=3, num_masked_regions=12, min_region_size=0.2,
+                                    max_region_size=0.5)
         results = masker3.transform_with_visualization(image_path, 'masked_output_3.png')
 
         y1, y2, x1, x2 = results['intact_regions'][0]
