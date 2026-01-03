@@ -38,7 +38,7 @@ def _train_jepa(args) -> None:
     if 'optimizer' in args:
         optimizer_config.optimizer = args['optimizer']
     if 'weight_decay' in args:
-        optimizer_config.weight_decay = args['weight_decay']
+        optimizer_config.weight_decay = float(args['weight_decay'])
     if 'eps' in args:
         optimizer_config.eps = float(args['eps'])
     if 'momentum' in args:

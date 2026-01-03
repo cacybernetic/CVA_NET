@@ -36,7 +36,7 @@ class Config:
     device: str = 'cpu'
     output_dir: str = 'alexnet-jepa'
     checkpoint_dir: str = 'jepa-ckpts'
-    max_ckpt_to_keep: int = 5
+    max_ckpt_to_keep: int = 3
     best_model_dir: str = 'best'
     train_curves_file: str = 'training_curves.jpeg'
     model: JEPAConfig = field(default_factory=JEPAConfig)
