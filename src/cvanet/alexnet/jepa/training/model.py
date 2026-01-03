@@ -38,6 +38,7 @@ class Config:
     checkpoint_dir: str = 'jepa-ckpts'
     max_ckpt_to_keep: int = 5
     best_model_dir: str = 'best'
+    train_curves_file: str = 'training_curves.jpeg'
     model: JEPAConfig = field(default_factory=JEPAConfig)
     optimizer: OptimizerConfig =  field(default_factory=OptimizerConfig)
     scheduler: LRSchedulerConfig = field(default_factory=LRSchedulerConfig)
@@ -116,6 +117,19 @@ def _train_step_with_scaler(
     return {'num_accumulated': num_accumulated, "loss_value": loss_value, 'mse': mse.item(), 'cosine': cosine.item()}
 
 
+def _forward_pass_step(x, y, model: JEPA, device: torch.device=None) -> Dict[str, Any]:
+    predicted, target, _ = model(x, y)  # noqa
+    loss, mse, cosine = compute_loss(predicted, target)
+    return {'loss': loss.item(), 'mse': mse.item(), 'cosine': cosine.item()}
+
+
+def _forward_pass_step_with_autocast(x, y, model: JEPA, device: torch.device) -> Dict[str, Any]:
+    with autocast(str(device), dtype=torch.float16):
+        predicted, target, _ = model(x, y)  # noqa
+        loss, mse, cosine = compute_loss(predicted, target)
+    return {'loss': loss.item(), 'mse': mse.item(), 'cosine': cosine.item()}
+
+
 class JEPATrainer:
 
     def __init__(self, config: Config) -> None:
@@ -142,6 +156,7 @@ class JEPATrainer:
         self._start_epoch_idx = 0
         self._num_accumulations = 1
         self._train_step = None
+        self._forward_pass_step = None
         self._compiled = False
         self._checkpoint_loaded = False
 
@@ -260,9 +275,11 @@ class JEPATrainer:
         if self._config.amp:
             self._scaler = GradScaler(device=str(self._device), enabled=True)
             self._train_step = _train_step_with_scaler
+            self._forward_pass_step = _forward_pass_step_with_autocast
             self._mon.log("Mean Average Precision enable.")
         else:
             self._train_step = _train_step
+            self._forward_pass_step = _forward_pass_step
         # Specify that all is ready;
         self._compiled = True
 
@@ -343,13 +360,12 @@ class JEPATrainer:
                 view1, view2 = batch_data
                 view1, view2 = view1.to(self._device), view2.to(self._device)
                 # Forward pass;
-                with autocast(str(self._device), dtype=torch.float16):
-                    predicted, target, _ = self.model(view1, view2)  # noqa
-                    loss, mse, cosine = compute_loss(predicted, target)
+                results = self._forward_pass_step(x=view1, y=view2, model=self.model, device=self._device)
                 # Statistiques;
-                total_loss += loss.item()
-                total_mse += mse.item()
-                total_cosine += cosine.item()
+                total_loss += results['loss']
+                total_mse += results['mse']
+                total_cosine += results['cosine']
+                ## Calculate average;
                 avg_loss = total_loss / num_batchs
                 avg_mse = total_mse / num_batchs
                 avg_cosine = total_cosine / num_batchs
@@ -377,6 +393,8 @@ class JEPATrainer:
         self._mon.log(f"Start training at epoch number \"{self._start_epoch_idx}\".")
         self._mon.log(f"Start training on device \"{self._device}\".")
         self._mon.log(f"{'=' * 120}\n")
+        train_curves_file = os.path.join(self._config.output_dir, self._config.train_curves_file)
+        os.makedirs(self._config.output_dir, exist_ok=True)
         for epoch in range(self._start_epoch_idx, num_epochs):
             self._mon.log(f"Epoch {epoch + 1}/{num_epochs}")
             # train on one epoch;
@@ -406,4 +424,6 @@ class JEPATrainer:
             if self._checkpoint_manager is not None:
                 self._checkpoint_manager.save_config(epoch, self._config)
                 self._checkpoint_manager.save_data(epoch, self, device_type=self._device.type)
+            self._history.plot(train_curves_file)
+            self._mon.log("Training curves is plotted at \"" + train_curves_file + "\".")
         return self._history
