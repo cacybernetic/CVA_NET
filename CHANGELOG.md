@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 <!-- - Nouvelle fonctionnalité X pour permettre de faire Y -->
 <!-- - Prise en charge du format Z dans les imports -->
+- I-JEPA training using AlexNet backbone.
 
-### Changed 
+### Changed
 <!-- - Amélioration des performances lors du chargement des données -->
+- Alexnet model weight initialization for best convergence.
 
 ### Fixed
 <!-- - Correction d'un bug empêchant l'export dans certains cas -->

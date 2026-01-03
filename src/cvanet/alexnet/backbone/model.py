@@ -41,3 +41,16 @@ class AlexNetBackbone(nn.Module):
         x = self.fc(x)
         x = self.ln(x)
         return x
+
+
+def init_weights_he(m: nn.Module) -> None:
+    if isinstance(m, nn.Conv2d):
+        # He normal initialization for convolutional layers;
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.Linear):
+        # He normal initialization for fully connected (linear) layers;
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)

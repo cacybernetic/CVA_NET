@@ -30,7 +30,7 @@ class Config:
     val_dataset: str = 'datasets/val'
     batch_size: int = 32
     image_size: int = 224
-    gradient_accumulation: int = 128
+    gradient_accumulations: int = 128
     num_workers: int = 2
     amp: bool = False
     device: str = 'cpu'
@@ -51,7 +51,7 @@ def _train_step(
     optimizer: Optimizer,
     num_accumulated: int,
     num_accumulations: int,
-    gradient_accumulation: int,
+    gradient_accumulations: int,
     avg_loss: float,
     avg_mse: float,
     avg_cosine: float,
@@ -66,7 +66,7 @@ def _train_step(
     loss = loss / num_accumulations
     loss.backward()
     num_accumulated += predicted.shape[0]
-    if num_accumulated >= gradient_accumulation:
+    if num_accumulated >= gradient_accumulations:
         ### Optimizer step;
         optimizer.step()
         ### Update EMA;
@@ -269,8 +269,8 @@ class JEPATrainer:
             self._checkpoint_manager.load_data(self._start_epoch_idx, self._config, self)
             self._start_epoch_idx += 1  # We will pass to the next epoch.
         # Calculate number of accumulations;
-        if self._config.gradient_accumulation > self._config.batch_size:
-            self._num_accumulations = self._config.gradient_accumulation // self._config.batch_size
+        if self._config.gradient_accumulations > self._config.batch_size:
+            self._num_accumulations = self._config.gradient_accumulations // self._config.batch_size
         # Initialize gradient scaler;
         if self._config.amp:
             self._scaler = GradScaler(device=str(self._device), enabled=True)
@@ -316,7 +316,7 @@ class JEPATrainer:
             # Forward pass;
             results = self._train_step(
                 x=view1, y=view1, model=self.model, optimizer=self.optimizer, num_accumulated=num_accumulated,
-                num_accumulations=self._num_accumulations, gradient_accumulation=self._config.gradient_accumulation,
+                num_accumulations=self._num_accumulations, gradient_accumulations=self._config.gradient_accumulations,
                 avg_loss=avg_loss, avg_mse=avg_mse, avg_cosine=avg_cosine, mon=self._mon, scaler=self._scaler,
                 device=self._device)
             num_accumulated = results['num_accumulated']
