@@ -14,7 +14,7 @@ class AlexNet(nn.Module):
         image_size: t.Tuple[int, int],
         num_channels: int=3,
         num_classes: int=1000,
-        dropout: float=0.5
+        dropout: float=0.5,
     ) -> None:
         super().__init__()
         self.features = nn.Sequential(

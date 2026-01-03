@@ -104,6 +104,10 @@ def _load_model_from_file(model_dir):
             from cva_net.resnet18 import ModelRepository, ModelFactory, \
                 print_model_summary
             model_summary = print_model_summary
+        elif model_arch == 'ResNet50':
+            from cva_net.resnet50 import ModelRepository, ModelFactory, \
+                print_model_summary
+            model_summary = print_model_summary
         else:
             raise NotImplementedError(
                 "The model architecture named `%s` is not implemented yet."

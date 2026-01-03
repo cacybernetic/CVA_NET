@@ -1,5 +1,6 @@
 Pyyaml
 tqdm==4.67.1
+numpy==2.2.6
 h5py==3.15.1
 scikit-learn==1.7.2
 torchinfo==1.8.0
