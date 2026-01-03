@@ -420,6 +420,8 @@ class JEPATrainer:
                 jepa_repos.save_config(self._config.model, dir_path=curr_best_model_dir)
                 jepa_repos.save_data(self.model, dir_path=curr_best_model_dir, device_type=self._device.type)
                 self._mon.log("✓ Best model saved!")
+            # Update model EMA;
+            self.model.update_target_encoder()
             # Make a checkpoint;
             if self._checkpoint_manager is not None:
                 self._checkpoint_manager.save_config(epoch, self._config)
@@ -427,6 +429,4 @@ class JEPATrainer:
             # Plotting of training progression into image file;
             self._history.plot(train_curves_file)
             self._mon.log("Training curves is plotted at \"" + train_curves_file + "\".")
-            # Update model EMA;
-            self.model.update_target_encoder()
         return self._history
