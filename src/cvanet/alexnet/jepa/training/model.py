@@ -70,7 +70,7 @@ def _train_step(
         ### Optimizer step;
         optimizer.step()
         ### Update EMA;
-        model.update_target_encoder()
+        # model.update_target_encoder()
         ### Reset gradient;
         optimizer.zero_grad()
         mon.print(" * Total loss %7.4f - MSE loss %7.4f - Cosine loss %7.4f" % (avg_loss, avg_mse, avg_cosine))
