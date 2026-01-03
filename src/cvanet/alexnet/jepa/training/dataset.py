@@ -1,8 +1,17 @@
 import os
-from typing import Tuple
+from typing import Tuple, List, Set
+# import numpy as np
+from PIL import Image
+import torch
 from torch.utils.data import Dataset as BaseDataset, DataLoader
 from torchvision import transforms
-from torchvision.datasets import ImageFolder
+
+IMAGE_EXTENSIONS = {
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp',
+    '.tiff', '.tif', '.webp', '.svg', '.ico',
+    '.heic', '.heif', '.raw', '.cr2', '.nef',
+    '.arw', '.psd', '.ai', '.eps'
+}
 
 
 class MultiViewTransform:
@@ -35,21 +44,67 @@ class CustomImageDataset(BaseDataset):
     Dataset personnalisé pour les images avec transformations multi-vues.
     """
 
-    def __init__(self, root_dir, transform=None):
-        self.image_folder = ImageFolder(root_dir)
-        self.transform = transform
-        # self.class_names = os.listdir(root_dir)
-        self.class_names = self.image_folder.classes
+    def __init__(self, image_files: List[str], size=224):
+        self._image_files = image_files
+        self._transform = MultiViewTransform(size)
 
-    def __len__(self):
-        return 1000
-        return len(self.image_folder)
+    def __len__(self) -> int:
+        # return 1000
+        return len(self._image_files)
 
-    def __getitem__(self, idx):
-        img, _ = self.image_folder[idx]
-        if self.transform:
-            imgs = self.transform(img)
-        return imgs
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        image_file = self._image_files[idx]
+        image = Image.open(image_file).convert('rgb')
+        images = self._transform(image)
+        return images
+
+
+def enumerate_image_files(directory_path: str, recursive: bool = True,extensions: Set[str] = None) -> List[str]:
+    """
+    Enumerate all image files in a directory and its subdirectories.
+
+    This function uses os.walk() to recursively traverse the directory structure and collects files
+    with image extensions.
+
+    Args:
+        directory_path: Path to the directory to search
+        recursive: If True, search in subdirectories (default: True)
+        extensions: Set of image file extensions to look for. If None, uses default image extensions.
+
+    Returns:
+        List of full paths to image files found.
+
+    Raises:
+        FileNotFoundError: If directory_path doesn't exist.
+        NotADirectoryError: If directory_path is not a directory.
+
+    Example:
+        >>> files = enumerate_image_files("/path/to/photos")
+        >>> print(f"Found {len(files)} image files")
+    """
+    # Validate directory exists and is a directory;
+    if not os.path.exists(directory_path):
+        raise FileNotFoundError(f"Directory does not exist: {directory_path}")
+    if not os.path.isdir(directory_path):
+        raise NotADirectoryError(f"Path is not a directory: {directory_path}")
+    # Default image extensions if none provided;
+    if extensions is None:
+        extensions = IMAGE_EXTENSIONS
+    image_files = []
+    # Use os.walk to traverse directory tree;
+    for dirpath, dirnames, filenames in os.walk(directory_path):
+        for filename in filenames:
+            # Get file extension and convert to lowercase for case-insensitive comparison;
+            file_extension = os.path.splitext(filename)[1].lower()
+            if file_extension in extensions:
+                # Construct full path and add to list;
+                full_path = os.path.join(dirpath, filename)
+                image_files.append(full_path)
+        # If not recursive, break after first level;
+        if not recursive:
+            # Clear dirnames to prevent os.walk from going deeper;
+            dirnames.clear()
+    return image_files
 
 
 def custom_dataloaders(
@@ -66,10 +121,10 @@ def custom_dataloaders(
         raise FileNotFoundError("No such training dataset directory at \"%s\"." % (train_data_dir,))
     if not os.path.isdir(val_data_dir):
         raise FileNotFoundError("No such validation dataset directory at \"%s\"." % (val_data_dir,))
-    train_dataset = CustomImageDataset(
-        root_dir=train_data_dir, transform=MultiViewTransform(size=img_size))
-    val_dataset = CustomImageDataset(
-        root_dir=val_data_dir, transform=MultiViewTransform(size=img_size))
+    image_files = enumerate_image_files(train_data_dir)
+    train_dataset = CustomImageDataset(image_files.copy(), size=img_size)
+    image_files = enumerate_image_files(val_data_dir)
+    val_dataset = CustomImageDataset(image_files.copy(), size=img_size)
     train_dataset_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory)
     val_dataset_loader = DataLoader(
