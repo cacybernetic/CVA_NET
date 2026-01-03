@@ -109,7 +109,7 @@ def _train_step_with_scaler(
         scaler.step(optimizer)
         scaler.update()
         ### Update EMA;
-        model.update_target_encoder()
+        # model.update_target_encoder()
         ### Reset gradient;
         optimizer.zero_grad()
         mon.print(" * Total loss %7.4f - MSE loss %7.4f - Cosine loss %7.4f" % (avg_loss, avg_mse, avg_cosine))
@@ -407,6 +407,8 @@ class JEPATrainer:
             self._history.append_val(
                 total_loss=val_results['total_loss'], mse_loss=val_results['mse_loss'],
                 cosine_loss=val_results['cosine_loss'])
+            # Update model EMA;
+            self.model.update_target_encoder()
             # Scheduler;
             self.scheduler.step()
             self._mon.log(f"Train Loss: {train_results['total_loss']:.4f} | Val Loss: {val_results['total_loss']:.4f}")
