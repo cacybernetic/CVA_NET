@@ -1,6 +1,9 @@
 import os
+import logging
 import random
+import math
 from typing import Tuple, List, Set
+from multiprocessing import Value
 import numpy as np
 from PIL import Image
 import torch
@@ -14,6 +17,181 @@ IMAGE_EXTENSIONS = {
     '.heic', '.heif', '.raw', '.cr2', '.nef',
     '.arw', '.psd', '.ai', '.eps'
 }
+_GLOBAL_SEED = 0
+logger = logging.getLogger(__name__)
+
+
+class MaskCollator(object):
+
+    def __init__(
+        self,
+        input_size=(224, 224),
+        patch_size=16,
+        enc_mask_scale=(0.2, 0.8),
+        pred_mask_scale=(0.2, 0.8),
+        aspect_ratio=(0.3, 3.0),
+        nenc=1,
+        npred=2,
+        min_keep=4,
+        allow_overlap=False
+    ):
+        super(MaskCollator, self).__init__()
+        if not isinstance(input_size, tuple):
+            input_size = (input_size, ) * 2
+        self.patch_size = patch_size
+        self.height, self.width = input_size[0] // patch_size, input_size[1] // patch_size
+        self.enc_mask_scale = enc_mask_scale
+        self.pred_mask_scale = pred_mask_scale
+        self.aspect_ratio = aspect_ratio
+        self.nenc = nenc
+        self.npred = npred
+        self.min_keep = min_keep  # minimum number of patches to keep
+        self.allow_overlap = allow_overlap  # whether to allow overlap b/w enc and pred masks
+        self._itr_counter = Value('i', -1)  # collator is shared across worker processes
+
+    def step(self):
+        i = self._itr_counter
+        with i.get_lock():
+            i.value += 1
+            v = i.value
+        return v
+
+    def _sample_block_size(self, generator, scale, aspect_ratio_scale):
+        _rand = torch.rand(1, generator=generator).item()
+        # -- Sample block scale
+        min_s, max_s = scale
+        mask_scale = min_s + _rand * (max_s - min_s)
+        max_keep = int(self.height * self.width * mask_scale)
+        # -- Sample block aspect-ratio
+        min_ar, max_ar = aspect_ratio_scale
+        aspect_ratio = min_ar + _rand * (max_ar - min_ar)
+        # -- Compute block height and width (given scale and aspect-ratio)
+        h = int(round(math.sqrt(max_keep * aspect_ratio)))
+        w = int(round(math.sqrt(max_keep / aspect_ratio)))
+        while h >= self.height:
+            h -= 1
+        while w >= self.width:
+            w -= 1
+        return (h, w)
+
+    def _sample_block_mask(self, b_size, acceptable_regions=None):
+        h, w = b_size
+        def constrain_mask(mask, tries=0):
+            """ Helper to restrict given mask to a set of acceptable regions """
+            N = max(int(len(acceptable_regions)-tries), 0)
+            for k in range(N):
+                mask *= acceptable_regions[k]
+        # --
+        # -- Loop to sample masks until we find a valid one
+        tries = 0
+        timeout = og_timeout = 20
+        valid_mask = False
+        while not valid_mask:
+            # -- Sample block top-left corner
+            top = torch.randint(0, self.height - h, (1,))
+            left = torch.randint(0, self.width - w, (1,))
+            mask = torch.zeros((self.height, self.width), dtype=torch.int32)
+            mask[top:top+h, left:left+w] = 1
+            # -- Constrain mask to a set of acceptable regions
+            if acceptable_regions is not None:
+                constrain_mask(mask, tries)
+            mask = torch.nonzero(mask.flatten())
+            # -- If mask too small try again
+            valid_mask = len(mask) > self.min_keep
+            if not valid_mask:
+                timeout -= 1
+                if timeout == 0:
+                    tries += 1
+                    timeout = og_timeout
+                    # logger.warning(
+                    #     f'Mask generator says: "Valid mask not found, decreasing acceptable-regions [{tries}]"')
+        mask = mask.squeeze()
+        # --
+        mask_complement = torch.ones((self.height, self.width), dtype=torch.int32)
+        mask_complement[top:top+h, left:left+w] = 0
+        # --
+        return mask, mask_complement
+
+    def __call__(self, batchs: int=1):
+        '''
+        Create encoder and predictor masks when collating imgs into a batch.
+        # 1. sample enc block (size + location) using seed.
+        # 2. sample pred block (size) using seed.
+        # 3. sample several enc block locations for each image (w/o seed).
+        # 4. sample several pred block locations for each image (w/o seed).
+        # 5. return enc mask and pred mask.
+        '''
+        # B = len(batch)
+        # collated_batch = torch.utils.data.default_collate(batch)
+        seed = self.step()
+        g = torch.Generator()
+        g.manual_seed(seed)
+        p_size = self._sample_block_size(generator=g, scale=self.pred_mask_scale, aspect_ratio_scale=self.aspect_ratio)
+        e_size = self._sample_block_size(generator=g, scale=self.enc_mask_scale, aspect_ratio_scale=(1., 1.))
+        collated_masks_pred, collated_masks_enc = [], []
+        min_keep_pred = self.height * self.width
+        min_keep_enc = self.height * self.width
+        for _ in range(batchs):
+            masks_p, masks_C = [], []
+            for _ in range(self.npred):
+                mask, mask_C = self._sample_block_mask(p_size)
+                masks_p.append(mask)
+                masks_C.append(mask_C)
+                min_keep_pred = min(min_keep_pred, len(mask))
+            collated_masks_pred.append(masks_p)
+            acceptable_regions = masks_C
+            try:
+                if self.allow_overlap:
+                    acceptable_regions= None
+            except Exception as e:
+                logger.warning(f'Encountered exception in mask-generator {e}')
+            masks_e = []
+            for _ in range(self.nenc):
+                mask, _ = self._sample_block_mask(e_size, acceptable_regions=acceptable_regions)
+                masks_e.append(mask)
+                min_keep_enc = min(min_keep_enc, len(mask))
+            collated_masks_enc.append(masks_e)
+        collated_masks_pred = [[cm[:min_keep_pred] for cm in cm_list] for cm_list in collated_masks_pred]
+        collated_masks_pred = torch.utils.data.default_collate(collated_masks_pred)
+        # --
+        collated_masks_enc = [[cm[:min_keep_enc] for cm in cm_list] for cm_list in collated_masks_enc]
+        collated_masks_enc = torch.utils.data.default_collate(collated_masks_enc)
+        return collated_masks_enc, collated_masks_pred
+
+
+def apply_mask_to_image(image_tensor, mask_indices, patch_size=16, mask_value=0.3):
+    """
+    Apply a mask to an image by darkening non-masked regions
+    
+    Args:
+        image_tensor: Tensor of shape (C, H, W)
+        mask_indices: 1D tensor containing patch indices to keep visible
+        patch_size: Size of each patch
+        mask_value: Brightness value for masked-out regions (0-1)
+    
+    Returns:
+        masked_img: Numpy array of masked image (H, W, C)
+    """
+    # Convert image tensor to numpy
+    img = image_tensor.permute(1, 2, 0).numpy()
+    img = (img - img.min()) / (img.max() - img.min())  # Normalize to [0, 1]
+    H, W = img.shape[:2]
+    h_patches = H // patch_size
+    w_patches = W // patch_size
+    # Convert mask indices to 2D mask
+    mask_flat = mask_indices.numpy()
+    mask_2d = np.zeros(h_patches * w_patches)
+    mask_2d[mask_flat] = 1
+    mask_2d = mask_2d.reshape(h_patches, w_patches)
+    # Upsample mask to image size
+    mask_upsampled = np.kron(mask_2d, np.ones((patch_size, patch_size)))
+    # Apply mask to image
+    masked_img = img.copy()
+    mask_3d = np.expand_dims(mask_upsampled, axis=2)
+    masked_img = masked_img * mask_3d + (1 - mask_3d) * mask_value
+    masked_img = torch.tensor(masked_img, dtype=torch.float32).permute(2, 0, 1)
+    return masked_img
+
 
 class ImageRegionMasker(torch.nn.Module):
     """
@@ -103,27 +281,36 @@ class MultiViewTransform:
     Génère deux vues augmentées de la même image.
     """
 
-    def __init__(self, size=224):
-        self.context_transform = transforms.Compose([
-            ImageRegionMasker(),
+    def __init__(self, size=224, patch_size: int=16, mask_value: float=0.3):
+        self._patch_size = patch_size
+        self._mask_value = mask_value
+        self.transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Resize((size, size)),
-            # transforms.RandomResizedCrop(size, scale=(0.6, 1.0)),
-            # transforms.RandomHorizontalFlip(p=0.5),
-            # transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
+            transforms.RandomResizedCrop(size, scale=(0.6, 1.0)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
             # transforms.RandomGrayscale(p=0.2),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
-        self.target_transform = transforms.Compose([
-            transforms.Resize((size, size)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        # Initialize mask collator
+        self.mask_collator = MaskCollator(
+            input_size=size,
+            patch_size=patch_size,
+            enc_mask_scale=(0.2, 0.8),
+            pred_mask_scale=(0.2, 0.8),
+            aspect_ratio=(0.3, 3.0),
+            nenc=1,
+            npred=4,
+            min_keep=4,
+            allow_overlap=False
+        )
 
     def __call__(self, x: Image.Image) -> Tuple[torch.Tensor, torch.Tensor]:
-        # x = x.resize(self._size)
-        y1 = self.context_transform(x)
-        y2 = self.target_transform(x)
+        x = self.transform(x)
+        masks_enc, masks_pred = self.mask_collator()
+        y1 = apply_mask_to_image(x, mask_indices=masks_enc[0], patch_size=self._patch_size, mask_value=self._mask_value)
+        y2 = apply_mask_to_image(x, mask_indices=masks_pred[0], patch_size=self._patch_size, mask_value=self._mask_value)
         # save_image(y1, 'y1.png')
         # save_image(y2, 'y2.png')
         return y1, y2
