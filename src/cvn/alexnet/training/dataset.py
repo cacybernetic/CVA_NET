@@ -29,7 +29,7 @@ class ImageTransformation:
             if train:
                 self._pipeline_transform = transforms.Compose([
                     transforms.ToTensor(),
-                    transforms.Resize((size, size)),
+                    transforms.Resize((size + 100, size + 100)),
                     transforms.RandomResizedCrop(size, scale=(0.6, 1.0)),
                     transforms.RandomHorizontalFlip(p=0.5),
                     transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
@@ -41,7 +41,32 @@ class ImageTransformation:
                     transforms.ToTensor(),
                     transforms.Resize((size, size)),
                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                ]) 
+                ])
+        elif image_mode.upper() == 'L':
+            if train:
+                self._pipeline_transform = transforms.Compose([
+                    # Convertir en tensor (shape: [1, 224, 224]);
+                    transforms.ToTensor(),
+                    # Redimensionner l'image à une taille légèrement supérieure;
+                    transforms.Resize((size + 100, size + 100)),
+                    # Data Augmentation pour améliorer la généralisation;
+                    transforms.RandomResizedCrop(size, scale=(0.8, 1.0)),
+                    transforms.RandomHorizontalFlip(p=0.5),
+                    transforms.RandomRotation(degrees=15),
+                    # Augmentation de contraste et luminosité (important pour grayscale);
+                    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+                    # Normalisation pour images grayscale (1 canal);
+                    # Utiliser mean et std pour un seul canal;
+                    transforms.Normalize(mean=[0.5], std=[0.5])
+                ])
+            else:
+                self._pipeline_transform = transforms.Compose([
+                    transforms.ToTensor(),
+                    # transforms.CenterCrop(224),
+                    transforms.Resize((size, size)),
+                    # Normalisation identique;
+                    transforms.Normalize(mean=[0.5], std=[0.5])
+                ])
         else:
             raise NotImplementedError("The pipeline of transformation for this image mode is not implemented yet.")
 
@@ -72,17 +97,19 @@ class Dataset(BaseDataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         image_file = self._image_files[idx]
+        class_id = self._class_ids[idx]
         image = Image.open(image_file)
         if self._img_channels == 3:
             image = image.convert('RGB')
-        else:
+        elif self._img_channels == 1:
             image = image.convert('L')
-        images = self._transform(image)
-        return images
+        image = self._transform(image)
+        class_id = torch.tensor(class_id, dtype=torch.int64)
+        return image, class_id
 
 
 def _check_image_file(file_name: str) -> bool:
-    file_name = file_name.split()
+    file_name = file_name.split('.')
     extension = '.' + file_name[-1]
     return extension in IMAGE_EXTENSIONS
 
@@ -126,7 +153,7 @@ def _load_labeled_image_files(directory_path: str, extensions: Set[str]=None) ->
     for class_dn in class_names:
         class_dir = os.path.join(directory_path, class_dn)
         file_names = os.listdir(class_dir)
-        file_paths = [os.path.joint(class_dir, fn) for fn in file_names if _check_image_file(fn)]
+        file_paths = [os.path.join(class_dir, fn) for fn in file_names if _check_image_file(fn)]
         image_files.extend(file_paths)
         class_ids.extend([class_names.index(class_dn)] * len(file_paths))
     return {
@@ -135,12 +162,26 @@ def _load_labeled_image_files(directory_path: str, extensions: Set[str]=None) ->
         'class_names': class_names}
 
 
+def _get_validation_samples(image_files: List[str], class_ids: List[int], p: float) -> Tuple[List[str], List[int]]:
+    ds_dataset_len = len(image_files)
+    val_dataset_len = int(p * ds_dataset_len)
+    indices = torch.randint(0, val_dataset_len, (val_dataset_len,))
+    # indices = torch.arange(0, val_dataset_len, 1)
+    val_image_files = []
+    val_class_ids = []
+    for index in indices:
+        val_image_files.append(image_files[index.item()])
+        val_class_ids.append(class_ids[index.item()])
+    return val_image_files, val_class_ids
+
+
 def build(
     train_data_dir: str,
     test_data_dir: str,
     img_channels: int=3,
     img_size: int=224,
     batch_size: int=32,
+    val: float=0.1,
     num_workers: int=2,
     pin_memory: bool=False,
     apply_transformations: bool=True,
@@ -160,20 +201,24 @@ def build(
     ## Build training set;
     train_samples = _load_labeled_image_files(train_data_dir)
     train_dataset = Dataset(
-        train_samples['image_files'], train_samples['class_ids'], img_channels=img_channels, size=img_size,
-        transform=train_transform)
+        train_samples['image_files'], train_samples['class_ids'], img_channels=img_channels, transform=train_transform)
     ## Build test set;
-    test_dataset = _load_labeled_image_files(test_data_dir)
-    train_dataset = Dataset(
-        test_dataset['image_files'], test_dataset['class_ids'], img_channels=img_channels, size=img_size,
-        transform=test_transform)
+    test_samples = _load_labeled_image_files(test_data_dir)
+    test_dataset = Dataset(
+        test_samples['image_files'], test_samples['class_ids'], img_channels=img_channels, transform=test_transform)
+    ## Build validation set;
+    val_images, val_class_ids = _get_validation_samples(test_samples['image_files'], test_samples['class_ids'], p=val)
+    val_dataset = Dataset(
+        val_images, val_class_ids, img_channels=img_channels, transform=test_transform)
     ## Build data loaders;
     train_dataset_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory)
+    val_dataset_loader = DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory)
     test_dataset_loader = DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory)
     return {
         'train_data_loader': train_dataset_loader,
-        'val_data_loader': None,
+        'val_data_loader': val_dataset_loader,
         'test_data_loader': test_dataset_loader,
         'class_names': train_samples['class_names']}
