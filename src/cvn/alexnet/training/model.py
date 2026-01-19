@@ -15,16 +15,16 @@ from .optimizer.factory import optimizer as build_optimizer
 from .optimizer.lr_scheduler.model import LRScheduler, Config as LRSchedulerConfig
 from .optimizer.lr_scheduler.factory import lr_scheduler
 # JEPA model:
-from yolo.v3.model import YOLO, Config as ModelConfig
-from yolo.v3.factory import yolo3
-from yolo.v3 import repository as yolo_repos, summary
+from cvn.alexnet.model import AlexNet, Config as ModelConfig
+from cvn.alexnet.factory import alexnet
+from cvn.alexnet import repository as yolo_repos, summary
 # Others:
 from .dataset import build as build_dataset
-from .loss_fn import YOLOLoss
+from .loss_fn import LossFunction
 from .monitor import Monitor
 from .history import History
 from .checkpoint import CheckpointManager
-from .metrics import *
+from .metrics import accuracy, precision, recall
 from .layer_freezing import apply as apply_layer_freezing
 
 
@@ -33,14 +33,14 @@ class Config:
     seed: int = 42
     train_dataset: str = 'datasets/train'
     val_dataset: str = 'datasets/val'
-    batch_size: int = 2
+    batch_size: int = 16
     image_size: int = 416
-    gradient_accumulations: int = 48
+    gradient_accumulations: int = 64
     num_workers: int = 2
     amp: bool = False
     device: str = 'cuda'
-    output_dir: str = 'runs'
-    checkpoint_dir: str = 'yolo-ckpts'
+    output_dir: str = 'outputs'
+    checkpoint_dir: str = 'checkpoints'
     max_ckpt_to_keep: int = 3
     best_model_dir: str = 'best'
     train_curves_file: str = 'training_curves.jpeg'
@@ -50,89 +50,88 @@ class Config:
     scheduler: LRSchedulerConfig = field(default_factory=LRSchedulerConfig)
 
 
+def _post_process(logits: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    r"""
+    Post-processing method
+    ----------------------
+
+    :param logits: [batch_size, num_classes];
+    :returns: tuple of two tensors of size [batch_size,],
+        the first tensor contains the class ids predicted
+        and the second tensor contains the softmax confidences.
+    """
+    probs = torch.softmax(logits, dim=-1)  # [n, num_classes]
+    class_ids = torch.argmax(probs, dim=-1)  # [n,]
+    confidences = torch.max(probs, dim=-1).values  # [n,]
+    return class_ids, confidences
+
+
 def _forward_pass_step(
     x: torch.Tensor,
     y: torch.Tensor,
-    scaled_anchors: torch.Tensor,
-    model: YOLO,
-    criterion: Callable,
+    model: AlexNet,
+    criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     device: torch.device,
-) -> Tuple[List[torch.Tensor], Dict[str, float]]:
+) -> Dict[str, torch.Tensor]:
     x = x.to(device)
-    y0 = y[0].to(device)
-    y1 = y[1].to(device)
-    y2 = y[2].to(device)
+    y = y.to(device)
     outputs = model.forward(x)  # noqa
-    losses0 = criterion(outputs[0], y0, scaled_anchors[0])
-    losses1 = criterion(outputs[1], y1, scaled_anchors[1])
-    losses2 = criterion(outputs[2], y2, scaled_anchors[2])
-    losses = {
-        'box_loss': losses0['box_loss'] + losses1['box_loss'] + losses2['box_loss'],
-        'pobj_loss': losses0['pobj_loss'] + losses1['pobj_loss'] + losses2['pobj_loss'],
-        'noobj_loss': losses0['noobj_loss'] + losses1['noobj_loss'] + losses2['noobj_loss'],
-        'cls_loss': losses0['cls_loss'] + losses1['cls_loss'] + losses2['cls_loss'],
-    }
-    total_loss = losses['box_loss'] + losses['pobj_loss'] + losses['noobj_loss'] + losses['cls_loss']
-    results = {'total_loss': total_loss, **losses}
-    return outputs, results
+    outputs = outputs.detach()
+    loss = criterion(outputs, y)
+    predictions, confs = _post_process(outputs)
+    return {
+        'entropy_loss': loss,
+        'predictions': predictions,
+        'confidences': confs}
 
 
 def _forward_pass_step_with_autocast(
     x: torch.Tensor,
     y: torch.Tensor,
-    scaled_anchors: torch.Tensor,
-    model: YOLO,
-    criterion: Callable,
+    model: AlexNet,
+    criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     device: torch.device,
 ) -> Tuple[List[torch.Tensor], Dict[str, float]]:
     with autocast(device_type=device.type, dtype=torch.float16):
-        outputs, results = _forward_pass_step(x, y, scaled_anchors, model, criterion, device)
-    return outputs, results
-
+        results = _forward_pass_step(x, y, model, criterion, device)
+    return results
 
 def _train_step(
     x: torch.Tensor,
     y: torch.Tensor,
-    scaled_anchors: torch.Tensor,
-    model: YOLO,
-    criterion: YOLOLoss,
+    model: AlexNet,
+    criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     optimizer: Optimizer,
     num_accumulated: int,
     num_accumulations: int,
     gradient_accumulations: int,
-    avg_box_loss: float,
-    avg_pobj_loss: float,
-    avg_noobj_loss: float,
-    avg_cls_loss: float,
+    avg_entropy_loss: float,
+    avg_acc_score: float,
+    avg_precision: float,
+    avg_recall: float,
     mon: Monitor,
     scaler: GradScaler=None,
     device: torch.device=None,
     optimize: bool=False,
 ) -> Dict[str, Any]:
     # Forward pass;
-    outputs, results = _forward_pass_step(x, y, scaled_anchors, model, criterion, device)
-    loss = results['total_loss']
+    outputs, loss = _forward_pass_step(x, y, model, criterion, device)
     loss_value = loss.item()
     loss = loss / num_accumulations
     loss.backward()
-    num_accumulated += outputs[0].shape[0]
+    num_accumulated += outputs.shape[0]
     if num_accumulated >= gradient_accumulations or optimize:
         ### Optimizer step;
         optimizer.step()
         ### Reset gradient;
         optimizer.zero_grad()
         mon.print(
-            "  Box loss %7.4f - PObj loss %7.4f - NoObj loss %7.4f - Class loss %7.4f"
-            % (avg_box_loss, avg_pobj_loss, avg_noobj_loss, avg_cls_loss))
+            "  Entropy loss %7.4f - PObj loss %7.4f - NoObj loss %7.4f - Class loss %7.4f"
+            % (avg_entropy_loss, avg_acc_score, avg_precision, avg_recall))
         num_accumulated = 0
     return {
         'num_accumulated': num_accumulated,
-        "total_loss": loss_value,
-        'box_loss': results['box_loss'].item(),
-        'pobj_loss': results['pobj_loss'].item(),
-        'noobj_loss': results['noobj_loss'].item(),
-        'cls_loss': results['cls_loss'].item()
-        }
+        "entropy_loss": loss_value}
 
 
 def _train_step_with_scaler(
@@ -185,21 +184,24 @@ def _train_step_with_scaler(
         }
 
 
-class YOLOTrainer:
+class Trainer:
 
     def __init__(self, config: Config) -> None:
         """
         Method allows to create an instance of JEPA trainer.
         """
         self._config = config
-        self.model: YOLO = None
-        self._criterion: YOLOLoss = None
+        self.model: AlexNet = None
+        self._criterion: LossFunction = None
         self.optimizer: Optimizer = None
         self.scheduler: LRScheduler = None
         self._device = None
         self._mon: Monitor = Monitor()
+        # Datasets
         self._train_dataset_loader: DataLoader = None
         self._val_dataset_loader: DataLoader = None
+        self._test_dataset_loader: DataLoader = None
+        # History And Checkpoint
         self._history: History =  History()
         self._checkpoint_manager: CheckpointManager = None
         if self._config.checkpoint_dir is not None:
@@ -209,9 +211,9 @@ class YOLOTrainer:
             self._checkpoint_manager = CheckpointManager(ckpt_dir, self._config.max_ckpt_to_keep)
         self._scaler = None
         self._best_val_loss = float('inf')
-        self._best_cls_acc = -float('inf')
-        self._best_pobj_acc = -float('inf')
-        self._best_noobj_acc = -float('inf')
+        self._best_acc_score = -float('inf')
+        self._best_precision = -float('inf')
+        self._best_recall = -float('inf')
         self._best_epoch = -1
         self._start_epoch_idx = 0
         self._num_accumulations = 1
@@ -222,10 +224,9 @@ class YOLOTrainer:
         self._compiled = False
         self._checkpoint_loaded = False
         # Create metrics;
-        self._precision = None
-        self._recall = None
-        self._map50 = None
-        self._map50_95 = None
+        self._accuracy = accuracy.score
+        self._precision = precision.Score()
+        self._recall = recall.Score()
 
     def load_checkpoint(self) -> Optional[int]:
         if self._checkpoint_manager is None:
@@ -280,22 +281,27 @@ class YOLOTrainer:
         anchors = self._config.model.anchors
         S = self._config.model.S
         img_channels = self._config.model.img_channels
-        dataloaders = build_dataset(
+        datasets = build_dataset(
             anchors=anchors, train_data_dir=self._config.train_dataset, val_data_dir=self._config.val_dataset,
             img_size=self._config.image_size, img_channels=img_channels, s=S, batch_size=self._config.batch_size,
             num_workers=self._config.num_workers, pin_memory=use_pin_memory)
-        self._train_dataset_loader = dataloaders[0]
-        self._val_dataset_loader = dataloaders[1]
+        self._train_dataset_loader = datasets['train_data_loader']
+        self._val_dataset_loader = datasets['val_data_loader']
+        self._test_dataset_loader = datasets['test_dataset_loader']
+        if not self._checkpoint_loaded:
+            self._config.model.class_names = datasets['class_names']
         self._mon.log("Training dataset:")
         self._mon.log(f"  Number of batchs -> {len(self._train_dataset_loader)}")
         self._mon.log("Validation dataset:")
         self._mon.log(f"  Number of batchs -> {len(self._val_dataset_loader)}")
+        self._mon.log("Test dataset:")
+        self._mon.log(f"  Number of batchs -> {len(self._test_dataset_loader)}")
 
     def _instanciate_model(self) -> None:
         if self.model is None:
             if self._config.model is None:
                 self._config.model = ModelConfig()
-            self.model, _ = yolo3(self._config.model)
+            self.model, _ = alexnet(self._config.model)
             self.model = self.model.to(self._device)
 
     def compile(self) -> None:
@@ -304,6 +310,8 @@ class YOLOTrainer:
         assert self.model is None or self._config.model is not None, "The model config is not specified."
         assert self.optimizer is None or self._config.optimizer is not None, "The optimizer config is not specified."
         assert self.scheduler is None or self._config.scheduler is not None, "The scheduler config is not specified."
+        # Create dataloaders;
+        self._create_dataloaders()
         ## Class names;
         self._class_names = self._config.model.class_names
         # Logging of training config;
@@ -315,17 +323,10 @@ class YOLOTrainer:
         self._device_setting()
         # Setting of seed value for random generators;
         self.set_seed(self._config.seed, self._device)
-        # Create dataloaders;
-        self._create_dataloaders()
         # Instanciation of the model;
         self._instanciate_model()
-        ## Prepare the scaled anchors;
-        anchors = self._config.model.anchors
-        S = self._config.model.S
-        S = torch.tensor(S).unsqueeze(1).unsqueeze(2).repeat(1, 3, 2)
-        self._scaled_anchors = (torch.tensor(anchors) * S).to(self._device)
         ## Instanciate criterion function;
-        self._criterion = YOLOLoss()
+        self._criterion = LossFunction(num_classes=len(self._class_names))
         # Instanciation of optimizer model;
         if self.optimizer is None:
             if self._config.optimizer is None:
@@ -358,12 +359,6 @@ class YOLOTrainer:
         else:
             self._train_step = _train_step
             self._forward_pass_step = _forward_pass_step
-        # Create metrics;
-        num_classes = len(self._class_names)
-        self._precision = Precision(num_classes=num_classes, iou_threshold=0.5)
-        self._recall = Recall(num_classes=num_classes, iou_threshold=0.5)
-        self._map50 = mAP50(num_classes=num_classes)
-        self._map50_95 = mAP50_95(num_classes=num_classes)
         ## Print model summary;
         model_stat, inference_time = summary.build(self.model, batchs=self._config.batch_size, device=self._device)
         self._mon.log("=" * 120)
