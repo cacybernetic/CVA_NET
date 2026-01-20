@@ -211,15 +211,8 @@ def build(
     val_images, val_class_ids = _get_validation_samples(test_samples['image_files'], test_samples['class_ids'], p=val)
     val_dataset = Dataset(
         val_images, val_class_ids, img_channels=img_channels, transform=test_transform)
-    ## Build data loaders;
-    train_dataset_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory)
-    val_dataset_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory)
-    test_dataset_loader = DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory)
     return {
-        'train_data_loader': train_dataset_loader,
-        'val_data_loader': val_dataset_loader,
-        'test_data_loader': test_dataset_loader,
+        'train_dataset': train_dataset,
+        'val_dataset': val_dataset,
+        'test_dataset': test_dataset,
         'class_names': train_samples['class_names']}

@@ -200,6 +200,9 @@ class Trainer:
         self._device = None
         self._mon: Monitor = Monitor()
         # Datasets
+        self._train_dataset = None
+        self._val_dataset = None
+        self._test_dataset = None
         self._train_dataset_loader: DataLoader = None
         self._val_dataset_loader: DataLoader = None
         self._test_dataset_loader: DataLoader = None
@@ -282,11 +285,21 @@ class Trainer:
         img_channels = self._config.model.img_channels
         datasets = build_dataset(
             train_data_dir=self._config.train_dataset, test_data_dir=self._config.val_dataset,
-            img_size=self._config.image_size, img_channels=img_channels, batch_size=self._config.batch_size,
-            num_workers=self._config.num_workers, pin_memory=use_pin_memory)
-        self._train_dataset_loader = datasets['train_data_loader']
-        self._val_dataset_loader = datasets['val_data_loader']
-        self._test_dataset_loader = datasets['test_data_loader']
+            img_size=self._config.image_size, img_channels=img_channels)
+        self._train_dataset = datasets['train_dataset']
+        self._val_dataset = datasets['val_dataset']
+        self._test_dataset = datasets['test_dataset']
+        ## Build data loaders;
+        self._train_dataset_loader = DataLoader(
+            self._train_dataset, batch_size=self._config.batch_size, shuffle=True, num_workers=self._config.num_workers,
+            pin_memory=use_pin_memory)
+        self._val_dataset_loader = DataLoader(
+            self._val_dataset, batch_size=self._config.batch_size, shuffle=True, num_workers=self._config.num_workers,
+            pin_memory=use_pin_memory)
+        self._test_dataset_loader = DataLoader(
+            self._test_dataset, batch_size=self._config.batch_size, shuffle=True, num_workers=self._config.num_workers,
+            pin_memory=use_pin_memory)
+        ## Load class names from dataset;
         if not self._checkpoint_loaded:
             self._config.model.class_names = datasets['class_names']
         self._mon.log("Training dataset:")
@@ -572,4 +585,6 @@ class Trainer:
             ## Plotting of training progression into image file;
             self._history.plot(train_curves_file)
             self._mon.log("Training curves is plotted at \"" + train_curves_file + "\".")
+        ## Generate visual validations;
+        ...
         return self._history
