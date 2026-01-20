@@ -1,36 +1,27 @@
 import ast
 import logging
-from cvanet.alexnet.backbone.model import Config as BackboneConfig
-from cvanet.alexnet.jepa.model import Config as ModelConfig
-from cvanet.alexnet.jepa.training.model import Config as TrainingConfig
-from cvanet.alexnet.jepa.training.factory import jepa_trainer
-from cvanet.alexnet.jepa.training.optimizer.model import Config as OptimizerConfig
+from cvn.alexnet.model import Config as ModelConfig
+from cvn.alexnet.training.model import Config as TrainingConfig
+from cvn.alexnet.training.factory import trainer
+from cvn.alexnet.training.optimizer.model import Config as OptimizerConfig
 
 from .cmdparser import parse_args
 
 LOGGER = logging.getLogger(__name__)
-TASKS = ('jepa',)
+TASKS = ('classification',)
 MODES = ('train', 'eval', 'predict')
 
 
-def _train_jepa(args) -> None:
+def _train_alexnet(args) -> None:
 
-    # Create the backbone config;
-    backbone_config = BackboneConfig()
-    if 'imch' in args:
-        backbone_config.num_channels = int(args['imch'])
-    if 'latent_dim' in args:
-        backbone_config.latent_dim = int(args['latent_dim'])
     # Create the model config;
     model_config = ModelConfig()
-    model_config.latent_dim = backbone_config.latent_dim
-    if 'ema_tau_min' in args:
-        model_config.ema_tau_min = float(args['ema_tau_min'])
-    if 'ema_tau_max' in args:
-        model_config.ema_tau_max = float(args['ema_tau_max'])
-    if 'ema_total_steps' in args:
-        model_config.ema_total_steps = int(args['ema_total_steps'])
-    model_config.backbone = backbone_config
+    if 'classes' in args:
+        model_config.class_names = [c.strip() for c in args['classes'].split(',') if c.strip()]
+    if 'imchs' in args:
+        model_config.img_channels = int(args['imchs'])
+    if 'dropout' in args:
+        model_config.dropout = float(args['dropout'])
     # Create the optimizer config;
     optimizer_config = OptimizerConfig()
     if 'lr0' in args:
@@ -70,10 +61,10 @@ def _train_jepa(args) -> None:
         training_config.checkpoint_dir = args['checkpoints']
     if 'max_ckpts' in args:
         training_config.max_ckpt_to_keep = int(args['max_ckpts'])
-    if 'data_train' in args:
-        training_config.train_dataset = args['data_train']
-    if 'data_val' in args:
-        training_config.val_dataset = args['data_val']
+    if 'train_data' in args:
+        training_config.train_dataset = args['train_data']
+    if 'val_data' in args:
+        training_config.val_dataset = args['val_data']
     if 'imgsz' in args:
         training_config.image_size = int(args['imgsz'])
     if 'workers' in args:
@@ -83,28 +74,24 @@ def _train_jepa(args) -> None:
     num_epochs = 2
     if 'epochs' in args:
         num_epochs = int(args['epochs'])
-    trainer, _ = jepa_trainer(training_config)
-    trainer.load_checkpoint()
-    trainer.compile()
-    trainer.execute(num_epochs)
+    trn, _ = trainer(training_config)
+    trn.load_checkpoint()
+    trn.compile()
+    trn.execute(num_epochs)
 
 
 def main() -> None:
     args = parse_args()
-    task = args['1'].lower()
-    mode = args['2'].lower()
-    if task not in TASKS:
-        print("The task named\"", task, "\"is not implemented yet.")
-        exit(0)
+    mode = args['1'].lower()
     if mode not in MODES:
         print("The mode named\"", mode, "\"is not supported.")
         exit(0)
     # Get parametters;
-    params = {name:val for name, val in args.items() if name not in ('1', '2')}
+    params = {name:val for name, val in args.items() if name not in ('1',)}
     LOGGER.info("=" * 120)
     LOGGER.info("LIST OF ARGUMENTS")
     for name, val in params.items():
         LOGGER.info("  " + name + ": " + val)
     # Call corresponding operation;
-    if task == 'jepa' and mode == 'train':
-        _train_jepa(params)
+    if mode == 'train':
+        _train_alexnet(params)

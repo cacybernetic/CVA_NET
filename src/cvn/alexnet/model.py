@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from typing import List
+from dataclasses import dataclass, field
 
 import torch
 from torch import nn
@@ -6,15 +7,15 @@ from torch import nn
 
 @dataclass
 class Config:
-    num_channels: int = 3
-    num_classes: int = 1000
+    img_channels: int = 3
+    img_size: int = 224
+    class_names: List[str] = field(default_factory=list)
     dropout: float = 0.5
 
 
 class AlexNet(nn.Module):
     def __init__(self, num_channels: int=3,  num_classes: int = 1000, dropout: float = 0.5) -> None:
         super().__init__()
-
         self.features = nn.Sequential(
             nn.Conv2d(num_channels, 64, kernel_size=11, stride=4, padding=2),
             nn.ReLU(inplace=True),

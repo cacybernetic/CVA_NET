@@ -1,10 +1,10 @@
 from typing import Tuple
-from .model import YOLOTrainer, Config
+from .model import Trainer, Config
 
 
-def yolo_trainer(config: Config=None, **kwargs) -> Tuple[YOLOTrainer, Config]:
+def trainer(config: Config=None, **kwargs) -> Tuple[Trainer, Config]:
     if config is None:
         config = Config()
     config.__dict__.update(kwargs)
-    instance = YOLOTrainer(config=config)
+    instance = Trainer(config=config)
     return instance, config

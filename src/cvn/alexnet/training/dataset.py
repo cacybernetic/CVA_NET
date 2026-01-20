@@ -1,6 +1,5 @@
 import os
 import logging
-import random
 from typing import Tuple, List, Set, Dict, Callable, Any
 from PIL import Image
 import torch
@@ -73,6 +72,7 @@ class ImageTransformation:
     def __call__(self, x: Image.Image) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self._pipeline_transform(x)
         return x
+
 
 class Dataset(BaseDataset):
     """

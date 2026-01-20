@@ -51,7 +51,7 @@ class CheckpointManager:
         self._cleanup_old_checkpoints()
         return results
 
-    def save_data(self, epoch: int, trainer: 'JEPATrainer', device_type: str=None) ->  Dict[str, Any]:
+    def save_data(self, epoch: int, trainer: 'Trainer', device_type: str=None) ->  Dict[str, Any]:
         """
         Sauvegarde un checkpoint pour une epoch donnee et nettoie
         les anciens checkpoints si necessaire.
@@ -85,7 +85,7 @@ class CheckpointManager:
         LOGGER.info(f"Checkpoint charge: {checkpoint_path}")
         return config
 
-    def load_data(self, epoch: int, config: 'Config', trainer: 'JEPATrainer') -> 'JEPATrainer':
+    def load_data(self, epoch: int, config: 'Config', trainer: 'Trainer') -> 'Trainer':
         """
         Charge un checkpoint pour une epoch donnee.
 

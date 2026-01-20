@@ -17,7 +17,7 @@ from .optimizer.lr_scheduler.factory import lr_scheduler
 # JEPA model:
 from cvn.alexnet.model import AlexNet, Config as ModelConfig
 from cvn.alexnet.factory import alexnet
-from cvn.alexnet import repository as yolo_repos, summary
+from cvn.alexnet import repository as model_repos, summary
 # Others:
 from .dataset import build as build_dataset
 from .loss_fn import LossFunction
@@ -70,10 +70,7 @@ def _forward_pass_step(
     y: torch.Tensor,
     model: AlexNet,
     criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    device: torch.device,
 ) -> Dict[str, torch.Tensor]:
-    x = x.to(device)
-    y = y.to(device)
     outputs = model.forward(x)  # noqa
     loss = criterion(outputs, y)
     predictions, confs = _post_process(outputs.detach())
@@ -91,7 +88,7 @@ def _forward_pass_step_with_autocast(
     device: torch.device,
 ) -> Tuple[List[torch.Tensor], Dict[str, float]]:
     with autocast(device_type=device.type, dtype=torch.float16):
-        results = _forward_pass_step(x, y, model, criterion, device)
+        results = _forward_pass_step(x, y, model, criterion)
     return results
 
 
@@ -114,7 +111,7 @@ def _train_step(
     optimize: bool=False,
 ) -> Dict[str, Any]:
     ## Forward pass;
-    res = _forward_pass_step(x, y, model, criterion, device)
+    res = _forward_pass_step(x, y, model, criterion)
     loss = res['entropy_loss']
     loss_value = loss.item()
     loss = loss / num_accumulations
@@ -128,8 +125,8 @@ def _train_step(
         ### Reset gradient;
         optimizer.zero_grad()
         mon.print(
-            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f - Precision: %5.1f - Recall: %5.1f"
-            % (avg_entropy_loss, avg_acc_score, avg_precision, avg_recall))
+            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f% - Precision: %5.1f% - Recall: %5.1f%"
+            % (avg_entropy_loss, avg_acc_score*100, avg_precision*100, avg_recall*100))
         num_accumulated = 0
     confs = res['confidences']
     return {
@@ -142,7 +139,6 @@ def _train_step(
 def _train_step_with_scaler(
     x: torch.Tensor,
     y: torch.Tensor,
-    scaled_anchors: torch.Tensor,
     model: AlexNet,
     criterion: LossFunction,
     optimizer: Optimizer,
@@ -160,7 +156,7 @@ def _train_step_with_scaler(
 ) -> Dict[str, Any]:
     ## Forward pass;
     with autocast(device_type=device.type, dtype=torch.float16):
-        res = _forward_pass_step(x, y, scaled_anchors, model, criterion, device)
+        res = _forward_pass_step(x, y, model, criterion)
         loss = res['entropy_loss']
         loss_value = loss.item()
         loss = loss / num_accumulations
@@ -178,8 +174,8 @@ def _train_step_with_scaler(
         ### Reset gradient;
         optimizer.zero_grad()
         mon.print(
-            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f - Precision: %5.1f - Recall: %5.1f"
-            % (avg_entropy_loss, avg_acc_score, avg_precision, avg_recall))
+            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f% - Precision: %5.1f% - Recall: %5.1f%"
+            % (avg_entropy_loss, avg_acc_score*100, avg_precision*100, avg_recall*100))
         num_accumulated = 0
         confs = res['confidences']
     return {
@@ -338,7 +334,7 @@ class Trainer:
             self.optimizer, _ = build_optimizer(self.model, self._config.optimizer)
         self._mon.log("Optimizer:")
         self._mon.log("  Config: " + str(self.optimizer))
-        # Instanciation of scheduler model;
+        ## Instanciation of scheduler model;
         if self.scheduler is None:
             if self._config.scheduler is None:
                 self._config.scheduler = LRSchedulerConfig()
@@ -351,10 +347,10 @@ class Trainer:
         ## Model layer editions applying;
         if self._config.freeze_layers:
             self.model = apply_layer_freezing(self.model, self._config.freeze_layers)
-        # Calculate number of accumulations;
+        ## Calculate number of accumulations;
         if self._config.gradient_accumulations > self._config.batch_size:
             self._num_accumulations = self._config.gradient_accumulations // self._config.batch_size
-        # Initialize gradient scaler;
+        ## Initialize gradient scaler;
         if self._config.amp:
             self._scaler = GradScaler(device=str(self._device), enabled=True)
             self._train_step = _train_step_with_scaler
@@ -370,7 +366,7 @@ class Trainer:
         self._mon.log('=' * 120)
         self._mon.log(f"\n{model_stat}")
         self._mon.log(f"Inference times: {inference_time:.3f} seconds.")
-        # Specify that all is ready;
+        ## Specify that all is ready;
         self._compiled = True
 
     def state_dict(self) -> Dict[str, Any]:
@@ -414,6 +410,8 @@ class Trainer:
         self.optimizer.zero_grad()
         for num_batchs, batch_data in enumerate(self._train_dataset_loader, 1):
             x, y = batch_data
+            x = x.to(self._device)
+            y = y.to(self._device)
             ## Forward pass;
             # optimize=(num_batchs>=total_batchs): if it is the last batchs then we compute optimization.
             results = self._train_step(
@@ -456,119 +454,53 @@ class Trainer:
         """
         self.model.eval()
         # Total loss
-        total_loss = 0
-        box_loss = 0
-        pobj_loss = 0
-        noobj_loss = 0
-        cls_loss = 0
-        precision = 0
-        recall = 0
+        total_entropy_loss = 0
+        total_accuracy_score = 0
+        total_precision = 0
+        total_recall = 0
         # Avg loss
-        avg_total_loss = 0
-        avg_box_loss = 0
-        avg_pobj_loss = 0
-        avg_noobj_loss = 0
-        avg_cls_acc = 0
-        avg_pobj_acc = 0
-        avg_noobj_acc = 0
-        # Predictions and targets;
-        # predictions = []
-        # targets = []
-        threshold = 0.05
-        tot_class_preds, correct_class = 0, 0
-        tot_noobj, correct_noobj = 0, 0
-        tot_obj, correct_obj = 0, 0
+        avg_entropy_loss = 0
+        avg_accuracy_score = 0
+        avg_precision = 0
+        avg_recall = 0
         self._mon.create_pbar(len(self._val_dataset_loader), desc="\033[96mValidation\033[0m")
         with torch.no_grad():
             for num_batchs, batch_data in enumerate(self._val_dataset_loader, 1):
                 x, y = batch_data
-                # Forward pass;
-                outputs, results = self._forward_pass_step(
-                    x, y, self._scaled_anchors, self.model, self._criterion, self._device)
-                # Statistiques;
-                total_loss += results['total_loss'].item()
-                box_loss += results['box_loss'].item()
-                pobj_loss += results['pobj_loss'].item()
-                noobj_loss += results['noobj_loss'].item()
-                cls_loss += results['cls_loss'].item()
-                ## Compute predictions;
-                for i in range(3):
-                    y[i] = y[i].to(self._device)
-                    obj = y[i][..., 0] == 1 # in paper this is Iobj_i
-                    noobj = y[i][..., 0] == 0  # in paper this is Iobj_i
-                    # Compute acc;
-                    out = outputs[i].detach()
-                    correct_class += torch.sum(torch.argmax(out[..., 5:][obj], dim=-1) == y[i][..., 5][obj])
-                    tot_class_preds += torch.sum(obj)
-                    # ===================================
-                    obj_preds = torch.sigmoid(out[..., 0]) > threshold
-                    correct_obj += torch.sum(obj_preds[obj] == y[i][..., 0][obj])
-                    tot_obj += torch.sum(obj)
-                    correct_noobj += torch.sum(obj_preds[noobj] == y[i][..., 0][noobj])
-                    tot_noobj += torch.sum(noobj)
-                    ## Finalyse;
-                    avg_cls_acc = (correct_class/(tot_class_preds+1e-16)).item()
-                    avg_pobj_acc = (correct_obj/(tot_obj+1e-16)).item()
-                    avg_noobj_acc = (correct_noobj/(tot_noobj+1e-16)).item()
+                x = x.to(self._device)
+                y = y.to(self._device)
+                ## Forward pass and entropy loss compute;
+                results = self._forward_pass_step(x, y, self.model, self._criterion, self._device)
+                ## Statistiques;
+                total_entropy_loss += results['entropy_loss']
+                total_accuracy_score += self._accuracy(results['predictions'], y)
+                total_precision += self._precision(results['predictions'], y)
+                total_recall += self._recall(results['predictions'], y)
                 ## Calculate average;
-                avg_total_loss = total_loss / num_batchs
-                avg_box_loss = box_loss / num_batchs
-                avg_pobj_loss = pobj_loss / num_batchs
-                avg_noobj_loss = noobj_loss / num_batchs
-                avg_cls_loss = cls_loss / num_batchs
-                # avg_cls_acc = cls_acc / num_batchs
-                # avg_pobj_acc = pobj_acc / num_batchs
-                # avg_noobj_acc = noobj_acc / num_batchs
-
-                # outputs = outputs.detach().cpu()
-                # anchors = self._scaled_anchors.cpu()
-                # preds = _compute_predictions(outputs, anchors)
-                # print(preds)
-                # exit(0)
-                # predictions.append(preds)
-                # targets.append(target)
-                ## Show results;
+                avg_entropy_loss = total_entropy_loss / num_batchs
+                avg_accuracy_score = total_accuracy_score / num_batchs
+                avg_precision = total_precision / num_batchs
+                avg_recall = total_recall / num_batchs
                 self._mon.pbar.set_postfix(
                     {
-                        'box_loss': f'{avg_box_loss:7.4f}',
-                        'pobj_loss': f'{avg_pobj_loss:7.4f}',
-                        'noobj_loss': f'{avg_noobj_loss:7.4f}',
-                        'cls_loss': f'{avg_cls_loss:7.4f}',
-                        'cls_acc': f'{avg_cls_acc:7.4f}',
-                        'pobj_acc': f'{avg_pobj_acc:7.4f}',
-                        'noobj_acc': f'{avg_noobj_acc:7.4f}',
+                        'loss': f'{avg_entropy_loss:7.4f}',
+                        'score': f'{avg_accuracy_score:6.4f}',
+                        'P': f'{avg_precision:6.4f}',
+                        'R': f'{avg_recall:6.4f}'
                     }
                 )
-                self._mon.pbar.set_description(f"Validation [total_loss={avg_total_loss:7.4f}]")
                 self._mon.pbar.update(1)
-        self._mon.close_pbar()
-        ## Compute metrics;
-        # precision = self._precision(predictions, targets).compute()
-        # recall = self._recall(predictions, targets)
-        # mean_precision = self._precision.compute()
-        # mean_recall = self._recall.compute()
-        # map50 = self._map50(predictions, targets)
-        # map50_95 = self._map50_95(predictions, targets)
-        return {
-            'total_loss': avg_total_loss,
-            'box_loss': avg_box_loss,
-            'pobj_loss': avg_pobj_loss,
-            'noobj_loss': avg_noobj_loss,
-            'cls_loss': avg_cls_loss,
-            'cls_acc': avg_cls_acc,
-            'pobj_acc': avg_pobj_acc,
-            'noobj_acc': avg_noobj_acc,
-            # 'mean_precision': mean_precision,
-            # 'mean_recall': mean_recall,
-            # 'map50': map50,
-            # 'map50_95': map50_95,
-
-        }
+            self._mon.close_pbar()
+            return {
+                'entropy_loss': avg_entropy_loss,
+                'accuracy_score': avg_accuracy_score,
+                'precision': avg_precision,
+                'recall': avg_recall}
 
     def execute(self, num_epochs: int=1) -> History:
         assert self._compiled is True, (
             "You must call the method called `compile()` in first, before call the `execute()` method.")
-        # Training;
+        # Training
         self._mon.log(f"{'=' * 120}")
         self._mon.log(f"STARTING OF YOLOv3 TRAINING - {num_epochs} EPOCHS")
         self._mon.log(f"Start training at epoch number \"{self._start_epoch_idx + 1}\".")
@@ -581,48 +513,47 @@ class Trainer:
             ## train on one epoch;
             train_results = self.train_epoch()
             self._history.append_train(
-                box_loss=train_results['box_loss'], pobj_loss=train_results['pobj_loss'],
-                noobj_loss=train_results['noobj_loss'], cls_loss=train_results['cls_loss'])
+                entropy_loss=train_results['entropy_loss'], accuracy_score=train_results['accuracy_score'],
+                precision=train_results['precision'], recall=train_results['recall'])
             ## Validation;
             val_results = self.validate()
             self._history.append_val(
-                box_loss=val_results['box_loss'], pobj_loss=val_results['pobj_loss'],
-                noobj_loss=val_results['noobj_loss'], cls_loss=val_results['cls_loss'],
-                cls_acc=val_results['cls_acc'], pobj_acc=val_results['pobj_acc'], noobj_acc=val_results['noobj_acc'])
+                entropy_loss=val_results['entropy_loss'], accuracy_score=val_results['accuracy_score'],
+                precision=val_results['precision'], recall=val_results['recall'])
             ## Scheduler;
             self.scheduler.step()
-            self._mon.log(f"TRAIN | VAL")
-            self._mon.log(f"Total Loss: {train_results['total_loss']:.4f} | {val_results['total_loss']:.4f}")
-            self._mon.log(f"Box Loss:   {train_results['box_loss']:.4f}   | {val_results['box_loss']:.4f}")
-            self._mon.log(f"Pobj Loss:  {train_results['pobj_loss']:.4f}  | {val_results['pobj_loss']:.4f}")
-            self._mon.log(f"Noobj Loss: {train_results['noobj_loss']:.4f} | {val_results['noobj_loss']:.4f}")
-            self._mon.log(f"Class Loss: {train_results['cls_loss']:.4f}   | {val_results['cls_loss']:.4f}")
-            self._mon.log(("-" * 10) + "Accuracies" + ("-" * 10))
-            self._mon.log(f"Class Acc: {val_results['cls_acc']*100:2f}%")
-            self._mon.log(f"Pobj Acc: {val_results['pobj_acc']*100:2f}%")
-            self._mon.log(f"Noobj Acc: {val_results['noobj_acc']*100:2f}%")
+            ## Print results;
+            args1 = (
+                train_results['entropy_loss'], train_results['accuracy_score']*100, train_results['precision']*100,
+                train_results['recall']*100)
+            args2 = (
+                val_results['entropy_loss'], val_results['accuracy_score']*100, val_results['precision']*100,
+                val_results['recall']*100)
+            self._mon.log(f"        \t Entropy \t Accuracy score \t Precision \t Recall ")
+            self._mon.log("Training \t %7.4f \t %7.3f       \t %7.3f   \t %7.3f" % args1)
+            self._mon.log("Val      \t %7.4f \t %7.3f       \t %7.3f   \t %7.3f" % args2)
             ## Save the best model weights;
             if (
-                val_results['total_loss'] <= self._best_val_loss
-                and val_results['cls_acc'] >= self._best_cls_acc
-                and val_results['pobj_acc'] >= self._best_pobj_acc
-                and val_results['noobj_acc'] >= self._best_noobj_acc
+                val_results['entropy_loss'] <= self._best_loss
+                and val_results['accuracy_score'] >= self._best_acc_score
+                and val_results['precision'] >= self._best_precision
+                and val_results['recall'] >= self._best_recall
             ):
                 if (
-                    val_results['total_loss'] == self._best_val_loss
-                    and val_results['cls_acc'] == self._best_cls_acc
-                    and val_results['pobj_acc'] == self._best_pobj_acc
-                    and val_results['noobj_acc'] == self._best_noobj_acc
+                    val_results['entropy_loss'] == self._best_loss
+                    and val_results['accuracy_score'] == self._best_acc_score
+                    and val_results['precision'] == self._best_precision
+                    and val_results['recall'] == self._best_recall
                 ):
                     self._mon.log("Case where this model acc is equal to the last best model acc.")
                     continue
-                self._best_val_loss = val_results['total_loss']
-                self._best_cls_acc = val_results['cls_acc']
-                self._best_pobj_acc = val_results['pobj_acc']
-                self._best_noobj_acc = val_results['noobj_acc']
+                self._best_loss = val_results['entropy_loss']
+                self._best_acc_score = val_results['accuracy_score']
+                self._best_precision = val_results['precision']
+                self._best_recall = val_results['recall']
                 curr_best_model_dir = os.path.join(self._config.output_dir, f"{self._config.best_model_dir}_{epoch:0d}")
-                yolo_repos.save_config(self._config.model, dir_path=curr_best_model_dir)
-                yolo_repos.save_data(self.model, dir_path=curr_best_model_dir, device_type=self._device.type)
+                model_repos.save_config(self._config.model, dir_path=curr_best_model_dir)
+                model_repos.save_data(self.model, dir_path=curr_best_model_dir, device_type=self._device.type)
                 tm.sleep(1)
                 ## Remove the old best model dir after 1 sec;
                 old_best_model_dir = os.path.join(

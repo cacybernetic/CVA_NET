@@ -2,7 +2,7 @@ import re
 import logging
 from typing import Tuple, List
 from torch import nn
-from yolo.v3.model import YOLO
+from cvn.alexnet.model import AlexNet
 
 LOGGER = logging.getLogger(__name__)
 
@@ -17,8 +17,8 @@ def _find_params(pattern: str, model: nn.Module) -> Tuple[List[str], List[nn.Par
     return found_sublayers, found_params
 
 
-def apply(model: YOLO, layer_names: List[str]) -> YOLO:
-    assert isinstance(model, YOLO), "Expected model instance: YOLO, but we got \"" + str(type(model)) + "\"."
+def apply(model: AlexNet, layer_names: List[str]) -> AlexNet:
+    assert isinstance(model, AlexNet), "Expected model instance: AlexNet, but we got \"" + str(type(model)) + "\"."
     assert isinstance(layer_names, list), (
         "Expected list of str for `layer_names`, but we got \"" + str(type(layer_names)) + "\".")
     LOGGER.info("Layers configuration:")
