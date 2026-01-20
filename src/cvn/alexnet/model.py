@@ -14,7 +14,8 @@ class Config:
 
 
 class AlexNet(nn.Module):
-    def __init__(self, num_channels: int=3,  num_classes: int = 1000, dropout: float = 0.5) -> None:
+
+    def __init__(self, num_channels: int=3, img_size: int=224, num_classes: int = 1000, dropout: float = 0.5) -> None:
         super().__init__()
         self.features = nn.Sequential(
             nn.Conv2d(num_channels, 64, kernel_size=11, stride=4, padding=2),
@@ -31,10 +32,11 @@ class AlexNet(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
         )
-        self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
+        # self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
+        fm_shape = self._feat_shape(num_channels, img_size)
         self.classifier = nn.Sequential(
             nn.Dropout(p=dropout),
-            nn.Linear(256 * 6 * 6, 4096),
+            nn.Linear(fm_shape[1], 4096),
             nn.ReLU(inplace=True),
             nn.Dropout(p=dropout),
             nn.Linear(4096, 4096),
@@ -42,9 +44,14 @@ class AlexNet(nn.Module):
             nn.Linear(4096, num_classes),
         )
 
+    def _feat_shape(self, num_channels: int, image_size: int) -> torch.Size:
+        x = torch.zeros((1, num_channels, image_size, image_size))
+        y = self.features(x)
+        y = y.reshape(y.shape[0], -1)
+        return y.shape
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.features(x)
-        x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x

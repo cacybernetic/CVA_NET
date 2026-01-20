@@ -34,7 +34,7 @@ class Config:
     train_dataset: str = 'datasets/train'
     val_dataset: str = 'datasets/val'
     batch_size: int = 16
-    image_size: int = 416
+    image_size: int = 224
     gradient_accumulations: int = 64
     num_workers: int = 2
     amp: bool = False
@@ -361,7 +361,8 @@ class Trainer:
             self._train_step = _train_step
             self._forward_pass_step = _forward_pass_step
         ## Print model summary;
-        model_stat, inference_time = summary.build(self.model, batchs=self._config.batch_size, device=self._device)
+        model_stat, inference_time = summary.build(
+            self.model, self._config.model, batchs=self._config.batch_size, device=self._device)
         self._mon.log("=" * 120)
         self._mon.log("MODEL SUMMARY")
         self._mon.log('=' * 120)
@@ -407,7 +408,7 @@ class Trainer:
         avg_recall = 0
         num_accumulated = 0
         total_batchs = len(self._train_dataset_loader)
-        self._mon.create_pbar(total_batchs, desc="\033[96mTraining\033[0m]")
+        self._mon.create_pbar(total_batchs, desc="\033[96mTraining\033[0m")
         self.optimizer.zero_grad()
         for num_batchs, batch_data in enumerate(self._train_dataset_loader, 1):
             x, y = batch_data

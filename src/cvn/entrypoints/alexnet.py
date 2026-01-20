@@ -67,6 +67,7 @@ def _train_alexnet(args) -> None:
         training_config.val_dataset = args['val_data']
     if 'imgsz' in args:
         training_config.image_size = int(args['imgsz'])
+        model_config.img_size = training_config.image_size
     if 'workers' in args:
         training_config.num_workers = int(args['workers'])
     training_config.model = model_config
