@@ -1,5 +1,5 @@
 from typing import Tuple
-from yolo.v3.training.optimizer.model import Optimizer
+from cvn.alexnet.training.optimizer.model import Optimizer
 from .model import CosineAnnealingLR, LRScheduler, Config
 
 

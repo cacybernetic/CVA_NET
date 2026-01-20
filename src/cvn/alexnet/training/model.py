@@ -14,7 +14,7 @@ from .optimizer.factory import optimizer as build_optimizer
 # Scheduler:
 from .optimizer.lr_scheduler.model import LRScheduler, Config as LRSchedulerConfig
 from .optimizer.lr_scheduler.factory import lr_scheduler
-# JEPA model:
+# Alexnet model:
 from cvn.alexnet.model import AlexNet, Config as ModelConfig
 from cvn.alexnet.factory import alexnet
 from cvn.alexnet import repository as model_repos, summary
@@ -70,6 +70,7 @@ def _forward_pass_step(
     y: torch.Tensor,
     model: AlexNet,
     criterion: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    device: torch.device=None,
 ) -> Dict[str, torch.Tensor]:
     outputs = model.forward(x)  # noqa
     loss = criterion(outputs, y)
@@ -125,7 +126,7 @@ def _train_step(
         ### Reset gradient;
         optimizer.zero_grad()
         mon.print(
-            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f% - Precision: %5.1f% - Recall: %5.1f%"
+            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f%% - Precision: %5.1f%% - Recall: %5.1f%%"
             % (avg_entropy_loss, avg_acc_score*100, avg_precision*100, avg_recall*100))
         num_accumulated = 0
     confs = res['confidences']
@@ -174,7 +175,7 @@ def _train_step_with_scaler(
         ### Reset gradient;
         optimizer.zero_grad()
         mon.print(
-            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f% - Precision: %5.1f% - Recall: %5.1f%"
+            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f%% - Precision: %5.1f%% - Recall: %5.1f%%"
             % (avg_entropy_loss, avg_acc_score*100, avg_precision*100, avg_recall*100))
         num_accumulated = 0
         confs = res['confidences']
@@ -280,12 +281,12 @@ class Trainer:
             use_pin_memory = True
         img_channels = self._config.model.img_channels
         datasets = build_dataset(
-            train_data_dir=self._config.train_dataset, val_data_dir=self._config.val_dataset,
+            train_data_dir=self._config.train_dataset, test_data_dir=self._config.val_dataset,
             img_size=self._config.image_size, img_channels=img_channels, batch_size=self._config.batch_size,
             num_workers=self._config.num_workers, pin_memory=use_pin_memory)
         self._train_dataset_loader = datasets['train_data_loader']
         self._val_dataset_loader = datasets['val_data_loader']
-        self._test_dataset_loader = datasets['test_dataset_loader']
+        self._test_dataset_loader = datasets['test_data_loader']
         if not self._checkpoint_loaded:
             self._config.model.class_names = datasets['class_names']
         self._mon.log("Training dataset:")
@@ -310,6 +311,8 @@ class Trainer:
         assert self.model is None or self._config.model is not None, "The model config is not specified."
         assert self.optimizer is None or self._config.optimizer is not None, "The optimizer config is not specified."
         assert self.scheduler is None or self._config.scheduler is not None, "The scheduler config is not specified."
+        ## Device setting;
+        self._device_setting()
         # Create dataloaders;
         self._create_dataloaders()
         ## Class names;
@@ -319,8 +322,6 @@ class Trainer:
         self._mon.log("TRAINING CONFIG")
         self._mon.log("=" * 120)
         self._mon.log(str(self._config))
-        ## Device setting;
-        self._device_setting()
         ## Setting of seed value for random generators;
         self.set_seed(self._config.seed, self._device)
         ## Instanciation of the model;
@@ -406,7 +407,7 @@ class Trainer:
         avg_recall = 0
         num_accumulated = 0
         total_batchs = len(self._train_dataset_loader)
-        self._mon.create_pbar(total_batchs, desc="\033[93mTraining\033[0m]")
+        self._mon.create_pbar(total_batchs, desc="\033[96mTraining\033[0m]")
         self.optimizer.zero_grad()
         for num_batchs, batch_data in enumerate(self._train_dataset_loader, 1):
             x, y = batch_data
@@ -415,8 +416,8 @@ class Trainer:
             ## Forward pass;
             # optimize=(num_batchs>=total_batchs): if it is the last batchs then we compute optimization.
             results = self._train_step(
-                x=x, y=y, scaled_anchors=self._scaled_anchors, model=self.model, criterion=self._criterion,
-                optimizer=self.optimizer, num_accumulated=num_accumulated,
+                x=x, y=y, model=self.model, criterion=self._criterion, optimizer=self.optimizer,
+                num_accumulated=num_accumulated,
                 num_accumulations=self._num_accumulations, gradient_accumulations=self._config.gradient_accumulations,
                 avg_entropy_loss=avg_entropy_loss, avg_acc_score=avg_accuracy_score, avg_precision=avg_precision,
                 avg_recall=avg_recall, mon=self._mon, scaler=self._scaler, device=self._device,
@@ -429,9 +430,9 @@ class Trainer:
             total_recall += self._recall(results['predictions'], y)
             ## Calculate average;
             avg_entropy_loss = total_entropy_loss / num_batchs
-            avg_accuracy_score = total_accuracy_score / num_batchs
-            avg_precision = total_precision / num_batchs
-            avg_recall = total_recall / num_batchs
+            avg_accuracy_score = (total_accuracy_score / num_batchs).item()
+            avg_precision = (total_precision / num_batchs).item()
+            avg_recall = (total_recall / num_batchs).item()
             self._mon.pbar.set_postfix(
                 {
                     'loss': f'{avg_entropy_loss:7.4f}',
@@ -463,7 +464,7 @@ class Trainer:
         avg_accuracy_score = 0
         avg_precision = 0
         avg_recall = 0
-        self._mon.create_pbar(len(self._val_dataset_loader), desc="\033[96mValidation\033[0m")
+        self._mon.create_pbar(len(self._val_dataset_loader), desc="\033[93mValidation\033[0m")
         with torch.no_grad():
             for num_batchs, batch_data in enumerate(self._val_dataset_loader, 1):
                 x, y = batch_data
@@ -472,15 +473,15 @@ class Trainer:
                 ## Forward pass and entropy loss compute;
                 results = self._forward_pass_step(x, y, self.model, self._criterion, self._device)
                 ## Statistiques;
-                total_entropy_loss += results['entropy_loss']
+                total_entropy_loss += results['entropy_loss'].detach().item()
                 total_accuracy_score += self._accuracy(results['predictions'], y)
                 total_precision += self._precision(results['predictions'], y)
                 total_recall += self._recall(results['predictions'], y)
                 ## Calculate average;
                 avg_entropy_loss = total_entropy_loss / num_batchs
-                avg_accuracy_score = total_accuracy_score / num_batchs
-                avg_precision = total_precision / num_batchs
-                avg_recall = total_recall / num_batchs
+                avg_accuracy_score = (total_accuracy_score / num_batchs).item()
+                avg_precision = (total_precision / num_batchs).item()
+                avg_recall = (total_recall / num_batchs).item()
                 self._mon.pbar.set_postfix(
                     {
                         'loss': f'{avg_entropy_loss:7.4f}',
@@ -502,7 +503,7 @@ class Trainer:
             "You must call the method called `compile()` in first, before call the `execute()` method.")
         # Training
         self._mon.log(f"{'=' * 120}")
-        self._mon.log(f"STARTING OF YOLOv3 TRAINING - {num_epochs} EPOCHS")
+        self._mon.log(f"STARTING OF ALEXNET TRAINING - {num_epochs} EPOCHS")
         self._mon.log(f"Start training at epoch number \"{self._start_epoch_idx + 1}\".")
         self._mon.log(f"Start training on device \"{self._device}\".")
         self._mon.log(f"{'=' * 120}\n")

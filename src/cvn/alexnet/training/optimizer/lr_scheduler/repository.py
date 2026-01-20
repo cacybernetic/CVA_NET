@@ -1,7 +1,7 @@
 import os
 import json
 import torch
-from yolo.v3.training.optimizer.model import Optimizer
+from cvn.alexnet.training.optimizer.model import Optimizer
 from .model import LRScheduler, Config
 from .factory import lr_scheduler
 

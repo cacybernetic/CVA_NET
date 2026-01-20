@@ -7,7 +7,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(levelname)s [%(asctime)s] \t %(message)s',
     handlers=[
-        logging.FileHandler("yolov3.log"),
+        logging.FileHandler("alexnet.log"),
         logging.StreamHandler()
     ]
 )

@@ -92,8 +92,8 @@ class Dataset(BaseDataset):
         self._transform = transform
 
     def __len__(self) -> int:
-        # return 1000
-        return len(self._image_files)
+        return 100
+        # return len(self._image_files)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         image_file = self._image_files[idx]

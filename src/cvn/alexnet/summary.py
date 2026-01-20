@@ -2,11 +2,11 @@ import time as tm
 from typing import Union, Tuple
 import torch
 from torchinfo import summary as pytorch_summary, ModelStatistics
-from .model import YOLO
+from .model import AlexNet
 
 
 def build(
-    m: YOLO,
+    m: AlexNet,
     batchs: int=1,
     img_ch: int=3,
     img_sz: int=416,

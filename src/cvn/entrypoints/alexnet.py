@@ -2,7 +2,7 @@ import ast
 import logging
 from cvn.alexnet.model import Config as ModelConfig
 from cvn.alexnet.training.model import Config as TrainingConfig
-from cvn.alexnet.training.factory import trainer
+from cvn.alexnet.training.factory import model_trainer
 from cvn.alexnet.training.optimizer.model import Config as OptimizerConfig
 
 from .cmdparser import parse_args
@@ -74,7 +74,7 @@ def _train_alexnet(args) -> None:
     num_epochs = 2
     if 'epochs' in args:
         num_epochs = int(args['epochs'])
-    trn, _ = trainer(training_config)
+    trn, _ = model_trainer(training_config)
     trn.load_checkpoint()
     trn.compile()
     trn.execute(num_epochs)

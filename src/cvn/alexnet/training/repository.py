@@ -2,7 +2,7 @@ import os
 import json
 from typing import Dict, Any
 from cvn.alexnet import repository as model_repos
-from cvn.alexnet.training.factory import trainer
+from cvn.alexnet.training.factory import model_trainer
 from cvn.alexnet.training.optimizer import repository as optimizer_repos
 from cvn.alexnet.training.optimizer.lr_scheduler import repository as scheduler_repos
 from .model import Trainer, Config
@@ -47,8 +47,8 @@ def save_config(config: Config, dir_path: str, encoding: str='utf-8') -> Dict[st
     return results
 
 
-def save_data(trn: Trainer, dir_path: str, device_type: str=None, encoding: str='utf-8') -> Dict[str, Any]:
-    assert trn is not None, "The instance of the model or its config is none (NoneType)."
+def save_data(trainer: Trainer, dir_path: str, device_type: str=None, encoding: str='utf-8') -> Dict[str, Any]:
+    assert trainer is not None, "The instance of the model or its config is none (NoneType)."
     assert dir_path, (
         "The directory path containing the training state and its configs is not provided. "
         "NoneType/blank string provided instead.")
@@ -59,9 +59,9 @@ def save_data(trn: Trainer, dir_path: str, device_type: str=None, encoding: str=
     scheduler_dir = os.path.join(dir_path, 'scheduler')
     results: Dict[str, Any] = {"trainer": model_file}
     ## Retreive instances;
-    model = trn.model
-    optimizer = trn.optimizer
-    scheduler = trn.scheduler
+    model = trainer.model
+    optimizer = trainer.optimizer
+    scheduler = trainer.scheduler
     os.makedirs(dir_path, exist_ok=True)
     ## Save yolo model;
     results['model'] = model_repos.save_data(model, alexnet_model_dir, device_type=device_type)  # noqa
@@ -70,7 +70,7 @@ def save_data(trn: Trainer, dir_path: str, device_type: str=None, encoding: str=
     ## Save scheduler;
     results['scheduler'] = scheduler_repos.save_data(scheduler, scheduler_dir)  # noqa
     ## Save the training model;
-    train_state_dict = trn.state_dict()
+    train_state_dict = trainer.state_dict()
     _write_json_file(train_state_dict, model_file, encoding)
     return results
 
@@ -104,7 +104,7 @@ def load_config(dir_path: str, encoding: str='utf-8') -> Config:
     return trainer_config
 
 
-def load_data(dir_path: str, config: Config, encoding: str='utf-8', trn: Trainer=None) -> Trainer:
+def load_data(dir_path: str, config: Config, encoding: str='utf-8', trainer: Trainer=None) -> Trainer:
     assert dir_path, (
         "The directory path containing the training state is not provided. "
         "NoneType/blank string provided instead.")
@@ -116,16 +116,16 @@ def load_data(dir_path: str, config: Config, encoding: str='utf-8', trn: Trainer
     optimizer_dir = os.path.join(dir_path, 'optimizer')
     scheduler_dir = os.path.join(dir_path, 'scheduler')
     ## Load training state model;
-    if trn is None:
-        trn, _ = trainer(config)
+    if trainer is None:
+        trainer, _ = model_trainer(config)
     if not os.path.isfile(model_file):
         raise FileNotFoundError("No such training state file at: %s" % (model_file,))
     state_dict = _read_json_file(model_file, encoding)
-    trn.load_state_dict(state_dict)
+    trainer.load_state_dict(state_dict)
     ## Load yolo model;
-    trn.model = model_repos.load_data(alexnet_model_dir, config.model, trn.model)
+    trainer.model = model_repos.load_data(alexnet_model_dir, config.model, trainer.model)
     ## Load Optimizer model;
-    trn.optimizer = optimizer_repos.load_data(optimizer_dir, config.optimizer,  trn.optimizer, trn.model)
+    trainer.optimizer = optimizer_repos.load_data(optimizer_dir, config.optimizer,  trainer.optimizer, trainer.model)
     ## Load scheduler model;
-    trn.scheduler = scheduler_repos.load_data(scheduler_dir, config.scheduler, trn.scheduler, trn.optimizer)
-    return trn
+    trainer.scheduler = scheduler_repos.load_data(scheduler_dir, config.scheduler, trainer.scheduler, trainer.optimizer)
+    return trainer
