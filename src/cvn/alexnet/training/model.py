@@ -303,12 +303,15 @@ class Trainer:
         if not self._checkpoint_loaded:
             self._config.model.class_names = datasets['class_names']
         self._mon.log("Training dataset:")
+        self._mon.log(f"  Number of samples  > {len(self._train_dataset)}")
         self._mon.log(f"  Number of batchs   > {len(self._train_dataset_loader)}")
         self._mon.log(f"  Class names        > {datasets['class_names']}")
         self._mon.log(f"  Number of classes  > {len(datasets['class_names'])}")
         self._mon.log("Validation dataset:")
+        self._mon.log(f"  Number of samples  > {len(self._val_dataset)}")
         self._mon.log(f"  Number of batchs   > {len(self._val_dataset_loader)}")
         self._mon.log("Test dataset:")
+        self._mon.log(f"  Number of samples  > {len(self._test_dataset)}")
         self._mon.log(f"  Number of batchs   > {len(self._test_dataset_loader)}")
 
     def _instanciate_model(self) -> None:
@@ -586,5 +589,4 @@ class Trainer:
             self._history.plot(train_curves_file)
             self._mon.log("Training curves is plotted at \"" + train_curves_file + "\".")
         ## Generate visual validations;
-        ...
         return self._history
