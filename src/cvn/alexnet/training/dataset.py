@@ -30,7 +30,7 @@ class ImageTransformation:
                     transforms.ToTensor(),
                     transforms.Resize((size + 100, size + 100)),
                     transforms.RandomResizedCrop(size, scale=(0.6, 1.0)),
-                    transforms.RandomHorizontalFlip(p=0.5),
+                    # transforms.RandomHorizontalFlip(p=0.5),
                     transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)], p=0.8),
                     # transforms.RandomGrayscale(p=0.2),
                     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -50,8 +50,8 @@ class ImageTransformation:
                     transforms.Resize((size + 100, size + 100)),
                     # Data Augmentation pour améliorer la généralisation;
                     transforms.RandomResizedCrop(size, scale=(0.8, 1.0)),
-                    transforms.RandomHorizontalFlip(p=0.5),
-                    # transforms.RandomRotation(degrees=15),
+                    # transforms.RandomHorizontalFlip(p=0.5),
+                    transforms.RandomRotation(degrees=30),
                     # Augmentation de contraste et luminosité (important pour grayscale);
                     transforms.ColorJitter(brightness=0.2, contrast=0.2),
                     # Normalisation pour images grayscale (1 canal);
