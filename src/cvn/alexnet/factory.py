@@ -1,4 +1,4 @@
-from .model import AlexNet, Config
+from .model import AlexNet, Config, init_weights_he
 
 
 def alexnet(config: Config=None, **kwargs) -> AlexNet:
@@ -8,4 +8,5 @@ def alexnet(config: Config=None, **kwargs) -> AlexNet:
     num_classes = len(config.class_names)
     model = AlexNet(
         num_channels=config.img_channels, img_size=config.img_size, num_classes=num_classes, dropout=config.dropout)
+    model.apply(init_weights_he)
     return model, config
