@@ -55,10 +55,9 @@ def _post_process(logits: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     Post-processing method
     ----------------------
 
-    :param logits: [batch_size, num_classes];
-    :returns: tuple of two tensors of size [batch_size,],
-        the first tensor contains the class ids predicted
-        and the second tensor contains the softmax confidences.
+    :param logits: [batch_size, num_classes].
+    :returns: tuple of two tensors of size [batch_size,], the first tensor contains the class ids predicted
+      and the second tensor contains the softmax confidences.
     """
     probs = torch.softmax(logits, dim=-1)  # [n, num_classes]
     class_ids = torch.argmax(probs, dim=-1)  # [n,]
@@ -76,9 +75,8 @@ def _forward_pass_step(
     x = x.to(device)
     y = y.to(device)
     outputs = model.forward(x)  # noqa
-    outputs = outputs.detach()
     loss = criterion(outputs, y)
-    predictions, confs = _post_process(outputs)
+    predictions, confs = _post_process(outputs.detach())
     return {
         'entropy_loss': loss,
         'predictions': predictions,
@@ -95,6 +93,7 @@ def _forward_pass_step_with_autocast(
     with autocast(device_type=device.type, dtype=torch.float16):
         results = _forward_pass_step(x, y, model, criterion, device)
     return results
+
 
 def _train_step(
     x: torch.Tensor,
@@ -114,53 +113,61 @@ def _train_step(
     device: torch.device=None,
     optimize: bool=False,
 ) -> Dict[str, Any]:
-    # Forward pass;
-    outputs, loss = _forward_pass_step(x, y, model, criterion, device)
+    ## Forward pass;
+    res = _forward_pass_step(x, y, model, criterion, device)
+    loss = res['entropy_loss']
     loss_value = loss.item()
     loss = loss / num_accumulations
+    ## Backward pass;
     loss.backward()
-    num_accumulated += outputs.shape[0]
+    preds = res['predictions']
+    num_accumulated += preds.shape[0]
     if num_accumulated >= gradient_accumulations or optimize:
         ### Optimizer step;
         optimizer.step()
         ### Reset gradient;
         optimizer.zero_grad()
         mon.print(
-            "  Entropy loss %7.4f - PObj loss %7.4f - NoObj loss %7.4f - Class loss %7.4f"
+            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f - Precision: %5.1f - Recall: %5.1f"
             % (avg_entropy_loss, avg_acc_score, avg_precision, avg_recall))
         num_accumulated = 0
+    confs = res['confidences']
     return {
         'num_accumulated': num_accumulated,
-        "entropy_loss": loss_value}
+        "entropy_loss": loss_value,
+        "predictions": preds,
+        "confidences": confs}
 
 
 def _train_step_with_scaler(
     x: torch.Tensor,
     y: torch.Tensor,
     scaled_anchors: torch.Tensor,
-    model: YOLO,
-    criterion: YOLOLoss,
+    model: AlexNet,
+    criterion: LossFunction,
     optimizer: Optimizer,
     num_accumulated: int,
     num_accumulations: int,
     gradient_accumulations: int,
-    avg_box_loss: float,
-    avg_pobj_loss: float,
-    avg_noobj_loss: float,
-    avg_cls_loss: float,
+    avg_entropy_loss: float,
+    avg_acc_score: float,
+    avg_precision: float,
+    avg_recall: float,
     mon: Monitor,
     scaler: GradScaler=None,
     device: torch.device=None,
     optimize: bool=False,
 ) -> Dict[str, Any]:
-    # Forward pass;
+    ## Forward pass;
     with autocast(device_type=device.type, dtype=torch.float16):
-        outputs, results = _forward_pass_step(x, y, scaled_anchors, model, criterion, device)
-        loss = results['total_loss']
+        res = _forward_pass_step(x, y, scaled_anchors, model, criterion, device)
+        loss = res['entropy_loss']
         loss_value = loss.item()
         loss = loss / num_accumulations
+    ## Backward pass;
     scaler.scale(loss).backward()
-    num_accumulated += outputs[0].shape[0]
+    preds = res['predictions']
+    num_accumulated += preds.shape[0]
     if num_accumulated >= gradient_accumulations or optimize:
         ### Gradient unscaling and clipping;
         scaler.unscale_(optimizer)
@@ -171,24 +178,22 @@ def _train_step_with_scaler(
         ### Reset gradient;
         optimizer.zero_grad()
         mon.print(
-            "  Box loss %7.4f - PObj loss %7.4f - NoObj loss %7.4f - Class loss %7.4f"
-            % (avg_box_loss, avg_pobj_loss, avg_noobj_loss, avg_cls_loss))
+            "  Entropy Loss: %7.4f - Accuracy Score: %5.1f - Precision: %5.1f - Recall: %5.1f"
+            % (avg_entropy_loss, avg_acc_score, avg_precision, avg_recall))
         num_accumulated = 0
+        confs = res['confidences']
     return {
         'num_accumulated': num_accumulated,
-        "total_loss": loss_value,
-        'box_loss': results['box_loss'].item(),
-        'pobj_loss': results['box_loss'].item(),
-        'noobj_loss': results['noobj_loss'].item(),
-        'cls_loss': results['cls_loss'].item()
-        }
+        "entropy_loss": loss_value,
+        "predictions": preds,
+        "confidences": confs}
 
 
 class Trainer:
 
     def __init__(self, config: Config) -> None:
         """
-        Method allows to create an instance of JEPA trainer.
+        Method allows to create an instance of Alexnet trainer.
         """
         self._config = config
         self.model: AlexNet = None
@@ -210,7 +215,7 @@ class Trainer:
             ckpt_dir = os.path.join(self._config.output_dir, ckpt_dir)
             self._checkpoint_manager = CheckpointManager(ckpt_dir, self._config.max_ckpt_to_keep)
         self._scaler = None
-        self._best_val_loss = float('inf')
+        self._best_loss = float('inf')
         self._best_acc_score = -float('inf')
         self._best_precision = -float('inf')
         self._best_recall = -float('inf')
@@ -219,7 +224,6 @@ class Trainer:
         self._num_accumulations = 1
         self._train_step = None
         self._forward_pass_step = None
-        self._scaled_anchors = None
         self._class_names = None
         self._compiled = False
         self._checkpoint_loaded = False
@@ -258,7 +262,7 @@ class Trainer:
             (isinstance(device, torch.device) and device.type == 'gpu')
             or (isinstance(device, str) and device.startswith('cuda'))
         ):
-            # Also set the deterministic flag for reproducibility
+            # Also set the deterministic flag for reproducibility;
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
 
@@ -278,12 +282,10 @@ class Trainer:
         use_pin_memory = False
         if self._device.type == 'gpu':
             use_pin_memory = True
-        anchors = self._config.model.anchors
-        S = self._config.model.S
         img_channels = self._config.model.img_channels
         datasets = build_dataset(
-            anchors=anchors, train_data_dir=self._config.train_dataset, val_data_dir=self._config.val_dataset,
-            img_size=self._config.image_size, img_channels=img_channels, s=S, batch_size=self._config.batch_size,
+            train_data_dir=self._config.train_dataset, val_data_dir=self._config.val_dataset,
+            img_size=self._config.image_size, img_channels=img_channels, batch_size=self._config.batch_size,
             num_workers=self._config.num_workers, pin_memory=use_pin_memory)
         self._train_dataset_loader = datasets['train_data_loader']
         self._val_dataset_loader = datasets['val_data_loader']
@@ -291,11 +293,13 @@ class Trainer:
         if not self._checkpoint_loaded:
             self._config.model.class_names = datasets['class_names']
         self._mon.log("Training dataset:")
-        self._mon.log(f"  Number of batchs -> {len(self._train_dataset_loader)}")
+        self._mon.log(f"  Number of batchs   > {len(self._train_dataset_loader)}")
+        self._mon.log(f"  Class names        > {datasets['class_names']}")
+        self._mon.log(f"  Number of classes  > {len(datasets['class_names'])}")
         self._mon.log("Validation dataset:")
-        self._mon.log(f"  Number of batchs -> {len(self._val_dataset_loader)}")
+        self._mon.log(f"  Number of batchs   > {len(self._val_dataset_loader)}")
         self._mon.log("Test dataset:")
-        self._mon.log(f"  Number of batchs -> {len(self._test_dataset_loader)}")
+        self._mon.log(f"  Number of batchs   > {len(self._test_dataset_loader)}")
 
     def _instanciate_model(self) -> None:
         if self.model is None:
@@ -314,20 +318,20 @@ class Trainer:
         self._create_dataloaders()
         ## Class names;
         self._class_names = self._config.model.class_names
-        # Logging of training config;
+        ## Logging of training config;
         self._mon.log("=" * 120)
         self._mon.log("TRAINING CONFIG")
         self._mon.log("=" * 120)
         self._mon.log(str(self._config))
-        # Device setting;
+        ## Device setting;
         self._device_setting()
-        # Setting of seed value for random generators;
+        ## Setting of seed value for random generators;
         self.set_seed(self._config.seed, self._device)
-        # Instanciation of the model;
+        ## Instanciation of the model;
         self._instanciate_model()
         ## Instanciate criterion function;
         self._criterion = LossFunction(num_classes=len(self._class_names))
-        # Instanciation of optimizer model;
+        ## Instanciation of optimizer model;
         if self.optimizer is None:
             if self._config.optimizer is None:
                 self._config.optimizer = OptimizerConfig()
@@ -355,7 +359,7 @@ class Trainer:
             self._scaler = GradScaler(device=str(self._device), enabled=True)
             self._train_step = _train_step_with_scaler
             self._forward_pass_step = _forward_pass_step_with_autocast
-            self._mon.log("Mean Average Precision enable.")
+            self._mon.log("Mean Average Precision enabled.")
         else:
             self._train_step = _train_step
             self._forward_pass_step = _forward_pass_step
@@ -371,22 +375,21 @@ class Trainer:
 
     def state_dict(self) -> Dict[str, Any]:
         return {
-            'best_val_loss': self._best_val_loss,
-            'best_cls_acc': self._best_cls_acc,
-            'best_pobj_acc': self._best_pobj_acc,
-            'best_noobj_acc': self._best_noobj_acc,
+            'best_loss': self._best_loss,
+            'best_acc_score': self._best_acc_score,
+            'best_precision': self._best_precision,
+            'best_recall': self._best_recall,
             'best_epoch': self._best_epoch,
-            'history': self._history.state_dict(),
-        }
+            'history': self._history.state_dict()}
 
     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
         """
         Method of training checkpoint loading.
         """
-        self._best_val_loss = state_dict['best_val_loss']
-        self._best_cls_acc = state_dict['best_cls_acc']
-        self._best_pobj_acc = state_dict['best_pobj_acc']
-        self._best_noobj_acc = state_dict['best_noobj_acc']
+        self._best_val_loss = state_dict['best_loss']
+        self._best_acc_score = state_dict['best_acc_score']
+        self._best_precision = state_dict['best_precision']
+        self._best_recall = state_dict['best_recall']
         self._best_epoch = state_dict['best_epoch']
         self._history.load_state_dict(state_dict['history'])
 
@@ -396,20 +399,18 @@ class Trainer:
         """
         self.model.train()
         # Total loss
-        total_loss = 0
-        box_loss = 0
-        pobj_loss = 0
-        noobj_loss = 0
-        cls_loss = 0
+        total_entropy_loss = 0
+        total_accuracy_score = 0
+        total_precision = 0
+        total_recall = 0
         # Avg loss
-        avg_total_loss = 0
-        avg_box_loss = 0
-        avg_pobj_loss = 0
-        avg_noobj_loss = 0
-        avg_cls_loss = 0
+        avg_entropy_loss = 0
+        avg_accuracy_score = 0
+        avg_precision = 0
+        avg_recall = 0
         num_accumulated = 0
         total_batchs = len(self._train_dataset_loader)
-        self._mon.create_pbar(total_batchs, desc="Training")
+        self._mon.create_pbar(total_batchs, desc="\033[93mTraining\033[0m]")
         self.optimizer.zero_grad()
         for num_batchs, batch_data in enumerate(self._train_dataset_loader, 1):
             x, y = batch_data
@@ -419,40 +420,35 @@ class Trainer:
                 x=x, y=y, scaled_anchors=self._scaled_anchors, model=self.model, criterion=self._criterion,
                 optimizer=self.optimizer, num_accumulated=num_accumulated,
                 num_accumulations=self._num_accumulations, gradient_accumulations=self._config.gradient_accumulations,
-                avg_box_loss=avg_box_loss, avg_pobj_loss=avg_pobj_loss, avg_noobj_loss=avg_noobj_loss,
-                avg_cls_loss=avg_cls_loss, mon=self._mon, scaler=self._scaler, device=self._device,
-                optimize=(num_batchs>=total_batchs))
+                avg_entropy_loss=avg_entropy_loss, avg_acc_score=avg_accuracy_score, avg_precision=avg_precision,
+                avg_recall=avg_recall, mon=self._mon, scaler=self._scaler, device=self._device,
+                optimize=(num_batchs >= total_batchs))
             num_accumulated = results['num_accumulated']
             ## Statistiques;
-            total_loss += results['total_loss']
-            box_loss += results['box_loss']
-            pobj_loss += results['pobj_loss']
-            noobj_loss += results['noobj_loss']
-            cls_loss += results['cls_loss']
+            total_entropy_loss += results['entropy_loss']
+            total_accuracy_score += self._accuracy(results['predictions'], y)
+            total_precision += self._precision(results['predictions'], y)
+            total_recall += self._recall(results['predictions'], y)
             ## Calculate average;
-            avg_total_loss = total_loss / num_batchs
-            avg_box_loss = box_loss / num_batchs
-            avg_pobj_loss = pobj_loss / num_batchs
-            avg_noobj_loss = noobj_loss / num_batchs
-            avg_cls_loss = cls_loss / num_batchs
+            avg_entropy_loss = total_entropy_loss / num_batchs
+            avg_accuracy_score = total_accuracy_score / num_batchs
+            avg_precision = total_precision / num_batchs
+            avg_recall = total_recall / num_batchs
             self._mon.pbar.set_postfix(
                 {
-                    'box_loss': f'{avg_box_loss:7.4f}',
-                    'pobj_loss': f'{avg_pobj_loss:7.4f}',
-                    'noobj_loss': f'{avg_noobj_loss:7.4f}',
-                    'cls_loss': f'{avg_cls_loss:7.4f}'
+                    'loss': f'{avg_entropy_loss:7.4f}',
+                    'score': f'{avg_accuracy_score:6.4f}',
+                    'P': f'{avg_precision:6.4f}',
+                    'R': f'{avg_recall:6.4f}'
                 }
             )
-            self._mon.pbar.set_description(f"Training [total_loss={avg_total_loss:7.4f}]")
             self._mon.pbar.update(1)
         self._mon.close_pbar()
         return {
-            'total_loss': avg_total_loss,
-            'box_loss': avg_box_loss,
-            'pobj_loss': avg_pobj_loss,
-            'noobj_loss': avg_noobj_loss,
-            'cls_loss': avg_cls_loss,
-        }
+            'entropy_loss': avg_entropy_loss,
+            'accuracy_score': avg_accuracy_score,
+            'precision': avg_precision,
+            'recall': avg_recall}
 
     def validate(self) -> Dict[str, Any]:
         """
@@ -465,13 +461,8 @@ class Trainer:
         pobj_loss = 0
         noobj_loss = 0
         cls_loss = 0
-        cls_acc = 0
-        pobj_acc = 0
-        noobj_acc = 0
         precision = 0
         recall = 0
-        map50 = 0
-        map50_95 = 0
         # Avg loss
         avg_total_loss = 0
         avg_box_loss = 0
@@ -487,7 +478,7 @@ class Trainer:
         tot_class_preds, correct_class = 0, 0
         tot_noobj, correct_noobj = 0, 0
         tot_obj, correct_obj = 0, 0
-        self._mon.create_pbar(len(self._val_dataset_loader), desc="Validation")
+        self._mon.create_pbar(len(self._val_dataset_loader), desc="\033[96mValidation\033[0m")
         with torch.no_grad():
             for num_batchs, batch_data in enumerate(self._val_dataset_loader, 1):
                 x, y = batch_data

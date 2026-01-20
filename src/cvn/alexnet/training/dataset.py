@@ -181,7 +181,7 @@ def build(
     img_channels: int=3,
     img_size: int=224,
     batch_size: int=32,
-    val: float=0.1,
+    val: float=0.40,
     num_workers: int=2,
     pin_memory: bool=False,
     apply_transformations: bool=True,
