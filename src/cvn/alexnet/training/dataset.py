@@ -51,7 +51,7 @@ class ImageTransformation:
                     # Data Augmentation pour améliorer la généralisation;
                     transforms.RandomResizedCrop(size, scale=(0.8, 1.0)),
                     transforms.RandomHorizontalFlip(p=0.5),
-                    transforms.RandomRotation(degrees=15),
+                    # transforms.RandomRotation(degrees=15),
                     # Augmentation de contraste et luminosité (important pour grayscale);
                     transforms.ColorJitter(brightness=0.2, contrast=0.2),
                     # Normalisation pour images grayscale (1 canal);
@@ -71,6 +71,7 @@ class ImageTransformation:
 
     def __call__(self, x: Image.Image) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self._pipeline_transform(x)
+        # save_image(x, 'image_transformed.jpg')
         return x
 
 
@@ -92,8 +93,8 @@ class Dataset(BaseDataset):
         self._transform = transform
 
     def __len__(self) -> int:
-        return 100
-        # return len(self._image_files)
+        # return 100
+        return len(self._image_files)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         image_file = self._image_files[idx]
