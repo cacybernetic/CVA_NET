@@ -30,7 +30,7 @@ class AutoAddFile:
         return f"{self._file_prefix}{latest_id}.{self._file_extension}"
 
 
-def get_transforms(img_size: t.Tuple[int, int] = (224, 224)) -> transforms.Compose:
+def get_transforms(img_size: Tuple[int, int] = (224, 224)) -> transforms.Compose:
     """
     Validation/test transforms pipeline.
     Only includes necessary preprocessing without augmentation.
@@ -42,23 +42,18 @@ def get_transforms(img_size: t.Tuple[int, int] = (224, 224)) -> transforms.Compo
         transforms.Resize((img_size)),
 
         # Normalize using ImageNet statistics:
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-        ),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
 
 
-def _post_process(
-    logits: torch.Tensor
-) -> t.Tuple[torch.Tensor, torch.Tensor]:
+def _post_process(logits: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     r"""
     Post-processing method
     ----------------------
 
     :param logits: [batch_size, num_classes];
     :returns: tuple of two tensors of size [batch_size,],
-        the first tensor contains the class ids predicted
-        and the second tensor contains the softmax confidences.
+      the first tensor contains the class ids predicted and the second tensor contains the softmax confidences.
     """
     probs = torch.softmax(logits, dim=-1)  # [n, num_classes]
     class_ids = torch.argmax(probs, dim=-1)  # [n,]

@@ -63,8 +63,8 @@ def _train_alexnet(args) -> None:
         training_config.max_ckpt_to_keep = int(args['max_ckpts'])
     if 'train_data' in args:
         training_config.train_dataset = args['train_data']
-    if 'val_data' in args:
-        training_config.val_dataset = args['val_data']
+    if 'test_data' in args:
+        training_config.val_dataset = args['test_data']
     if 'imgsz' in args:
         training_config.image_size = int(args['imgsz'])
         model_config.img_size = training_config.image_size
